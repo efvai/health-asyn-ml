@@ -25,8 +25,12 @@ from .data_loader.feature_extraction import (
     extract_categorical_features
 )
 
+# Import analysis modules
+from . import analysis
+
 __all__ = [
     'data_io',
+    'analysis',
     'DatasetManager', 
     'DatasetInfo',
     'DataLoader',
