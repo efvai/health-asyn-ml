@@ -245,7 +245,9 @@ def analyze_frequency_performance_trends(cv_results: Dict[str, Dict]) -> None:
 
 def run_comprehensive_frequency_analysis(data_loader, frequencies: List[str], 
                                        load: str = "no load", 
-                                       max_windows_per_class: int = 50) -> Tuple[Dict, Dict]:
+                                       max_windows_per_class: int = 20,
+                                       window_length: int = 1024,
+                                       window_overlap: float = 0.5) -> Tuple[Dict, Dict]:
     """
     Run comprehensive analysis across multiple frequencies
     
@@ -253,7 +255,7 @@ def run_comprehensive_frequency_analysis(data_loader, frequencies: List[str],
         data_loader: DataLoader instance
         frequencies: List of frequencies to analyze
         load: Load condition
-        max_windows_per_class: Maximum number of windows per class (default: 50)
+        max_windows_per_class: Maximum number of windows per class (default: 20)
         
     Returns:
         Tuple of (cv_results, importance_results)
@@ -275,7 +277,8 @@ def run_comprehensive_frequency_analysis(data_loader, frequencies: List[str],
         try:
             # Extract features
             features, labels, feature_names, metadata = extract_features_for_frequency(
-                data_loader, freq, load, max_windows_per_class=max_windows_per_class
+                data_loader, freq, load, max_windows_per_class=max_windows_per_class, 
+                window_size=window_length, overlap_ratio=window_overlap
             )
             
             # Evaluate model
