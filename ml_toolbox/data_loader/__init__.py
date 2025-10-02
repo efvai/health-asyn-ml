@@ -11,8 +11,8 @@ from .windowing import (
 )
 from .feature_extraction import (
     FeatureConfig, FeatureExtractor, TimeDomainFeatures, 
-    FrequencyDomainFeatures, AdvancedFeatures, extract_features_for_ml,
-    CURRENT_SAMPLING_RATE, VIBRATION_SAMPLING_RATE
+    FrequencyDomainFeatures, AdvancedFeatures, HilbertHuangFeatures,
+    extract_features_for_ml, CURRENT_SAMPLING_RATE, VIBRATION_SAMPLING_RATE
 )
 
 __all__ = [
@@ -33,6 +33,7 @@ __all__ = [
     'TimeDomainFeatures',
     'FrequencyDomainFeatures',
     'AdvancedFeatures',
+    'HilbertHuangFeatures',
     'extract_features_for_ml',
     'CURRENT_SAMPLING_RATE',
     'VIBRATION_SAMPLING_RATE'
