@@ -42,7 +42,7 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
     compare_mode: 'overlay' to draw both on one axis, 'stacked' to plot filtered below unfiltered
     """
     
-    print(f"🔍 Loading current signal data for condition: {condition}")
+    print(f"Loading current signal data for condition: {condition}")
     print("=" * 60)
     
     # Initialize data loader
@@ -57,27 +57,27 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
     )
     
     if not data_list:
-        print(f"❌ No current signal files found for condition: {condition}")
+        print(f"No current signal files found for condition: {condition}")
         return
     
     # Use the first file
     signal_data = data_list[0]  # Shape: [samples, channels]
     file_metadata = metadata_list[0]
     
-    print(f"📁 Loaded file: {file_metadata['path']}")
-    print(f"📊 Signal shape: {signal_data.shape} (samples, channels)")
-    print(f"⏱️  Duration: {signal_data.shape[0] / sampling_rate:.2f} seconds")
+    print(f"Loaded file: {file_metadata['path']}")
+    print(f"Signal shape: {signal_data.shape} (samples, channels)")
+    print(f"⏱Duration: {signal_data.shape[0] / sampling_rate:.2f} seconds")
     
     # Calculate window parameters
     window_samples = int(window_duration * sampling_rate)
     num_channels = signal_data.shape[1]
     
-    print(f"🪟 Window parameters:")
+    print(f"Window parameters:")
     print(f"   • Window duration: {window_duration}s ({window_samples} samples)")
     print(f"   • Number of channels: {num_channels}")
     
     # Use the existing windowing module to extract windows
-    print("🔄 Extracting windows using ml_toolbox...")
+    print("Extracting windows using ml_toolbox...")
     X_windows, labels, win_metadata = create_windows_for_ml(
         [signal_data],  # Pass as list since that's what the function expects
         [file_metadata],  # Pass metadata as list
@@ -100,13 +100,13 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
                 balance_classes=False,
                 max_windows_per_class=max_windows,
             )
-            print(f"🧪 Filtered version prepared for comparison. Windows: {len(Xf_windows)}")
+            print(f"Filtered version prepared for comparison. Windows: {len(Xf_windows)}")
         except Exception as e:
-            print(f"⚠️  Could not generate filtered comparison: {e}")
+            print(f"Could not generate filtered comparison: {e}")
             Xf_windows = None
     
     if len(X_windows) == 0:
-        print("❌ No windows were extracted")
+        print("No windows were extracted")
         return
     
     # Limit to max_windows for plotting consistency
@@ -114,7 +114,7 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
         X_windows = X_windows[:max_windows]
         if win_metadata:
             win_metadata = win_metadata[:max_windows]
-        print(f"ℹ️  Limiting to first {max_windows} windows for plotting")
+        print(f"ℹLimiting to first {max_windows} windows for plotting")
 
     # Align filtered windows count if available
     if Xf_windows is not None and len(Xf_windows) > 0:
@@ -123,9 +123,9 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
         elif len(Xf_windows) < len(X_windows):
             X_windows = X_windows[: len(Xf_windows)]
 
-        print(f"✅ Extracted {len(X_windows)} windows (comparison enabled)")
+        print(f"Extracted {len(X_windows)} windows (comparison enabled)")
     else:
-        print(f"✅ Extracted {X_windows.shape[0]} windows")
+        print(f"Extracted {X_windows.shape[0]} windows")
     print(f"   • Window shape: {X_windows.shape[1:]} (samples, channels)")
     
     # Calculate window start times for labeling
@@ -133,7 +133,7 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
     window_start_times = [i * step_size / sampling_rate for i in range(len(X_windows))]
     
     # Create PDF with plots
-    print(f"📄 Creating PDF: {output_pdf}")
+    print(f"Creating PDF: {output_pdf}")
     
     with PdfPages(output_pdf) as pdf:
         # Set up the plot style
@@ -267,25 +267,25 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
         CURRENT SIGNAL ANALYSIS SUMMARY
         {'=' * 50}
         
-        📁 File Information:
+        File Information:
            • Path: {file_metadata['path']}
            • Condition: {file_metadata['condition']}
            • Load: {file_metadata['load']} 
            • Frequency: {file_metadata['frequency']}
         
-        📊 Signal Properties:
+        Signal Properties:
            • Total samples: {total_samples:,}
            • Total duration: {total_samples / sampling_rate:.2f} seconds
            • Sampling rate: {sampling_rate:,} Hz
            • Number of channels: {num_channels}
         
-        🪟 Window Analysis:
+        Window Analysis:
            • Window duration: {window_duration}s ({window_samples} samples)
               • Windows extracted: {len(X_windows)}{' (with filtered comparison)' if compare_filtered and Xf_windows is not None else ''}
            • Overlap: 50%
            • Coverage: {len(X_windows) * window_duration / 2:.1f}s of signal
         
-        📈 Signal Statistics (All Channels):
+        Signal Statistics (All Channels):
            • Mean: {np.mean(signal_data):.2f} ± {np.std(np.mean(signal_data, axis=0)):.2f}
            • Std: {np.mean(np.std(signal_data, axis=0)):.2f} ± {np.std(np.std(signal_data, axis=0)):.2f}
            • RMS: {np.sqrt(np.mean(signal_data**2)):.2f}
@@ -293,7 +293,7 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
               • Max: {np.max(signal_data):.2f}
 {filtered_stats_line}
         
-        📄 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         """
         
         ax.text(0.05, 0.95, summary_text, transform=ax.transAxes, fontsize=12,
@@ -304,7 +304,7 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
         pdf.savefig(fig, dpi=150, bbox_inches='tight')
         plt.close(fig)
     
-    print(f"✅ PDF created successfully: {output_pdf}")
+    print(f"PDF created successfully: {output_pdf}")
     print(f"   • {len(X_windows)} windows plotted")
     print(f"   • File size: {Path(output_pdf).stat().st_size / 1024:.1f} KB")
     
@@ -313,7 +313,7 @@ def plot_current_windows_to_pdf(output_pdf="current_signal_windows.pdf",
 
 def main():
     """Main function to run the script."""
-    print("🚀 Current Signal Window PDF Generator")
+    print("Current Signal Window PDF Generator")
     print("=" * 60)
     
     # Available conditions - you can modify this
@@ -324,7 +324,7 @@ def main():
     window_duration = 2    # 2 seconds
     max_windows = 15       # Number of windows to plot
     
-    print(f"📋 Configuration:")
+    print(f"Configuration:")
     print(f"   • Condition: {condition}")
     print(f"   • Window duration: {window_duration}s")
     print(f"   • Max windows: {max_windows}")
@@ -340,10 +340,10 @@ def main():
             compare_mode="stacked"  # Change to 'overlay' or 'stacked'
         )
         
-        print(f"🎉 Success! Open '{output_file}' to view the current signal windows.")
+        print(f"Success! Open '{output_file}' to view the current signal windows.")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         import traceback
         traceback.print_exc()
 
