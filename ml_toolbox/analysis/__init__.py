@@ -12,7 +12,8 @@ from .feature_analysis import (
     extract_features_for_frequency,
     get_feature_importance_cv,
     analyze_feature_importance,
-    plot_feature_importance_comparison,
+    plot_permuted_importance_comparison,
+    plot_mdi_importance_comparison,
     compare_top_features_across_frequencies
 )
 
@@ -30,7 +31,8 @@ __all__ = [
     'extract_features_for_frequency',
     'get_feature_importance_cv',
     'analyze_feature_importance',
-    'plot_feature_importance_comparison',
+    'plot_permuted_importance_comparison',
+    'plot_mdi_importance_comparison',
     'compare_top_features_across_frequencies',
     
     # CV analysis

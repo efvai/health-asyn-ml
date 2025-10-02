@@ -98,9 +98,9 @@ def _calculate_permutation_feature_importance(model: RandomForestClassifier, X_v
     return np.array(result.importances_mean)  # type: ignore
 
 
-def get_feature_importance_cv(X: np.ndarray, y: np.ndarray, cv_folds: int = 5) -> np.ndarray:
+def get_feature_importance_cv(X: np.ndarray, y: np.ndarray, cv_folds: int = 5) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Extract permutation feature importance across CV folds using validation sets
+    Extract permutation and MDI feature importance across CV folds using validation sets
     
     Args:
         X: Feature matrix
@@ -108,7 +108,7 @@ def get_feature_importance_cv(X: np.ndarray, y: np.ndarray, cv_folds: int = 5) -
         cv_folds: Number of CV folds (set to 1 for simple train/test split)
         
     Returns:
-        Permutation-based feature importances across folds (computed on validation sets)
+        Tuple of (permutation_importances, mdi_importances) across folds (computed on validation sets)
     """
     # Handle case where CV is disabled (cv_folds = 1) - use simple train/test split
     if cv_folds == 1:
@@ -134,13 +134,16 @@ def get_feature_importance_cv(X: np.ndarray, y: np.ndarray, cv_folds: int = 5) -
         )
         model.fit(X_train_scaled, y_train)
         
-        # Calculate permutation importance on test set
+        # Calculate both permutation and MDI importance
         perm_importance = _calculate_permutation_feature_importance(model, X_test_scaled, y_test)
-        return np.array([perm_importance])  # Return as 2D array for consistency
+        mdi_importance = model.feature_importances_
+        
+        return np.array([perm_importance]), np.array([mdi_importance])  # Return as 2D arrays for consistency
     
     # Regular CV case
     cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
-    feature_importances = []
+    perm_importances = []
+    mdi_importances = []
     
     for train_idx, val_idx in cv.split(X, y):
         X_train_fold, X_val_fold = X[train_idx], X[val_idx]
@@ -161,18 +164,20 @@ def get_feature_importance_cv(X: np.ndarray, y: np.ndarray, cv_folds: int = 5) -
         )
         model.fit(X_train_scaled, y_train_fold)
         
-        # Calculate permutation importance on validation set
+        # Calculate both permutation and MDI importance on validation set
+        mdi_importance = model.feature_importances_
         perm_importance = _calculate_permutation_feature_importance(model, X_val_scaled, y_val_fold)
-        feature_importances.append(perm_importance)
+        perm_importances.append(perm_importance)
+        mdi_importances.append(mdi_importance)
     
-    return np.array(feature_importances)
+    return np.array(perm_importances), np.array(mdi_importances)
 
 
 def analyze_feature_importance(features: np.ndarray, labels: np.ndarray, 
                              feature_names: List[str], frequency: str,
                              cv_folds: int = 5) -> pd.DataFrame:
     """
-    Comprehensive feature importance analysis
+    Comprehensive feature importance analysis including both permutation and MDI importance
     
     Args:
         features: Feature matrix
@@ -182,23 +187,30 @@ def analyze_feature_importance(features: np.ndarray, labels: np.ndarray,
         cv_folds: Number of CV folds
         
     Returns:
-        DataFrame with feature importance statistics
+        DataFrame with feature importance statistics (permutation and MDI)
     """
     print(f"Computing feature importance for {frequency}...")
     
-    # Get CV feature importance
-    cv_feature_importances = get_feature_importance_cv(features, labels, cv_folds)
+    # Get CV feature importance (both permutation and MDI)
+    cv_perm_importances, cv_mdi_importances = get_feature_importance_cv(features, labels, cv_folds)
     
-    # Calculate statistics
-    mean_importance = np.mean(cv_feature_importances, axis=0)
-    std_importance = np.std(cv_feature_importances, axis=0)
+    # Calculate permutation importance statistics
+    mean_perm_importance = np.mean(cv_perm_importances, axis=0)
+    std_perm_importance = np.std(cv_perm_importances, axis=0)
+    
+    # Calculate MDI importance statistics
+    mean_mdi_importance = np.mean(cv_mdi_importances, axis=0)
+    std_mdi_importance = np.std(cv_mdi_importances, axis=0)
     
     # Create results DataFrame
     importance_df = pd.DataFrame({
         'Feature': feature_names,
-        'Mean_Importance': mean_importance,
-        'Std_Importance': std_importance,
-        'Stability_Score': mean_importance / (std_importance + 1e-8),
+        'Mean_Importance': mean_perm_importance,  # Keep permutation as main importance for backward compatibility
+        'Std_Importance': std_perm_importance,
+        'Stability_Score': mean_perm_importance / (std_perm_importance + 1e-8),
+        'Mean_MDI_Importance': mean_mdi_importance,
+        'Std_MDI_Importance': std_mdi_importance,
+        'MDI_Stability_Score': mean_mdi_importance / (std_mdi_importance + 1e-8),
         'Frequency': frequency
     }).sort_values('Mean_Importance', ascending=False)
     
@@ -224,14 +236,22 @@ def write_feature_importance_to_excel(importance_results: Dict[str, pd.DataFrame
         for freq, importance_df in importance_results.items():
             top_features = importance_df.head(20)
             for rank, (_, row) in enumerate(top_features.iterrows(), 1):
-                comparison_data.append({
+                comparison_row = {
                     'Frequency': freq,
                     'Rank': rank,
                     'Feature': row['Feature'],
                     'Mean_Importance': row['Mean_Importance'],
                     'Std_Importance': row['Std_Importance'],
                     'Stability_Score': row['Stability_Score']
-                })
+                }
+                # Add MDI importance columns if they exist
+                if 'Mean_MDI_Importance' in row:
+                    comparison_row.update({
+                        'Mean_MDI_Importance': row['Mean_MDI_Importance'],
+                        'Std_MDI_Importance': row['Std_MDI_Importance'],
+                        'MDI_Stability_Score': row['MDI_Stability_Score']
+                    })
+                comparison_data.append(comparison_row)
         
         comparison_df = pd.DataFrame(comparison_data)
         comparison_df.to_excel(writer, sheet_name='Top_Features_Comparison', index=False)
@@ -263,14 +283,22 @@ def write_feature_importance_to_excel(importance_results: Dict[str, pd.DataFrame
         detailed_data = []
         for freq, importance_df in importance_results.items():
             for _, row in importance_df.iterrows():
-                detailed_data.append({
+                detailed_row = {
                     'Frequency': freq,
                     'Feature': row['Feature'],
                     'Mean_Importance': row['Mean_Importance'],
                     'Std_Importance': row['Std_Importance'],
                     'Stability_Score': row['Stability_Score'],
                     'Feature_Type': row['Feature'].split('_')[0] if '_' in row['Feature'] else 'Unknown'
-                })
+                }
+                # Add MDI importance columns if they exist
+                if 'Mean_MDI_Importance' in row:
+                    detailed_row.update({
+                        'Mean_MDI_Importance': row['Mean_MDI_Importance'],
+                        'Std_MDI_Importance': row['Std_MDI_Importance'],
+                        'MDI_Stability_Score': row['MDI_Stability_Score']
+                    })
+                detailed_data.append(detailed_row)
         
         detailed_df = pd.DataFrame(detailed_data)
         detailed_df.to_excel(writer, sheet_name='Detailed_Importance', index=False)
@@ -338,10 +366,10 @@ def write_feature_importance_to_excel(importance_results: Dict[str, pd.DataFrame
     print(f"Feature importance results written to Excel: {output_path}")
 
 
-def plot_feature_importance_comparison(importance_results: Dict[str, pd.DataFrame], 
+def plot_permuted_importance_comparison(importance_results: Dict[str, pd.DataFrame], 
                                      top_n: int = 15):
     """
-    Plot feature importance comparison across frequencies
+    Plot permutation feature importance comparison across frequencies
     
     Args:
         importance_results: Dict mapping frequency to importance DataFrame
@@ -364,8 +392,50 @@ def plot_feature_importance_comparison(importance_results: Dict[str, pd.DataFram
                     xerr=top_features['Std_Importance'], alpha=0.7, capsize=3)
         axes[i].set_yticks(range(len(top_features)))
         axes[i].set_yticklabels([name.split('_')[-1][:15] for name in top_features['Feature']])
-        axes[i].set_xlabel('Feature Importance')
-        axes[i].set_title(f'Top {top_n} Features: {freq.upper()}')
+        axes[i].set_xlabel('Permutation Feature Importance')
+        axes[i].set_title(f'Top {top_n} Permutation Features: {freq.upper()}')
+        axes[i].invert_yaxis()
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_mdi_importance_comparison(importance_results: Dict[str, pd.DataFrame], 
+                                 top_n: int = 15):
+    """
+    Plot MDI feature importance comparison across frequencies
+    
+    Args:
+        importance_results: Dict mapping frequency to importance DataFrame
+        top_n: Number of top features to show
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(20, 15))
+    axes = axes.flatten()
+    
+    frequencies = list(importance_results.keys())
+    
+    for i, freq in enumerate(frequencies):
+        if i >= 4:  # Max 4 subplots
+            break
+            
+        df = importance_results[freq]
+        
+        # Check if MDI columns are available
+        if 'Mean_MDI_Importance' not in df.columns:
+            print(f"Warning: MDI importance not available for {freq}")
+            continue
+            
+        # Sort by MDI importance and get top features
+        mdi_sorted = df.sort_values('Mean_MDI_Importance', ascending=False)
+        top_features = mdi_sorted.head(top_n)
+        
+        # Horizontal bar plot
+        axes[i].barh(range(len(top_features)), top_features['Mean_MDI_Importance'], 
+                    xerr=top_features['Std_MDI_Importance'], alpha=0.7, capsize=3, color='orange')
+        axes[i].set_yticks(range(len(top_features)))
+        axes[i].set_yticklabels([name.split('_')[-1][:15] for name in top_features['Feature']])
+        axes[i].set_xlabel('MDI Feature Importance')
+        axes[i].set_title(f'Top {top_n} MDI Features: {freq.upper()}')
         axes[i].invert_yaxis()
     
     plt.tight_layout()

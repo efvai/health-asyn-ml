@@ -445,26 +445,33 @@ def analyze_shap_importance(features: np.ndarray, labels: np.ndarray,
 def compare_oob_vs_shap_importance(oob_importance_df: pd.DataFrame, 
                                  shap_importance_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compare OOB (Random Forest) importance with SHAP importance
+    Compare OOB (Random Forest) importance with SHAP importance, including MDI if available
     
     Args:
-        oob_importance_df: DataFrame with OOB importance results
+        oob_importance_df: DataFrame with OOB importance results (may include MDI)
         shap_importance_df: DataFrame with SHAP importance results
         
     Returns:
         Comparison DataFrame
     """
+    # Prepare base columns for merging
+    oob_cols = ['Feature', 'Mean_Importance', 'Stability_Score']
+    
+    # Add MDI columns if they exist in the OOB dataframe
+    if 'Mean_MDI_Importance' in oob_importance_df.columns:
+        oob_cols.extend(['Mean_MDI_Importance', 'MDI_Stability_Score'])
+    
     # Merge the two DataFrames on feature names
     comparison = pd.merge(
-        oob_importance_df[['Feature', 'Mean_Importance', 'Stability_Score']],
+        oob_importance_df[oob_cols],
         shap_importance_df[['Feature', 'Mean_SHAP_Importance', 'SHAP_Stability_Score']],
         on='Feature',
         how='inner'
     )
     
-    # Calculate correlation and rank differences
-    comparison['OOB_Rank'] = comparison['Mean_Importance'].rank(ascending=False)
-    comparison['SHAP_Rank'] = comparison['Mean_SHAP_Importance'].rank(ascending=False)
+    # Calculate correlation and rank differences for permutation importance
+    comparison['OOB_Rank'] = comparison['Mean_Importance'].rank(ascending=False, method='min').astype(int)
+    comparison['SHAP_Rank'] = comparison['Mean_SHAP_Importance'].rank(ascending=False, method='min').astype(int)
     comparison['Rank_Difference'] = abs(comparison['OOB_Rank'] - comparison['SHAP_Rank'])
     
     # Normalize importances for comparison
@@ -472,7 +479,15 @@ def compare_oob_vs_shap_importance(oob_importance_df: pd.DataFrame,
     comparison['SHAP_Normalized'] = comparison['Mean_SHAP_Importance'] / comparison['Mean_SHAP_Importance'].max()
     comparison['Importance_Difference'] = abs(comparison['OOB_Normalized'] - comparison['SHAP_Normalized'])
     
-    # Calculate agreement metrics
+    # Add MDI vs SHAP comparison if MDI data is available
+    if 'Mean_MDI_Importance' in comparison.columns:
+        comparison['MDI_Rank'] = comparison['Mean_MDI_Importance'].rank(ascending=False, method='min').astype(int)
+        comparison['MDI_SHAP_Rank_Difference'] = abs(comparison['MDI_Rank'] - comparison['SHAP_Rank'])
+        comparison['MDI_Normalized'] = comparison['Mean_MDI_Importance'] / comparison['Mean_MDI_Importance'].max()
+        comparison['MDI_SHAP_Importance_Difference'] = abs(comparison['MDI_Normalized'] - comparison['SHAP_Normalized'])
+        comparison['MDI_SHAP_Agreement_Score'] = 1 / (1 + comparison['MDI_SHAP_Rank_Difference'] + comparison['MDI_SHAP_Importance_Difference'])
+    
+    # Calculate agreement metrics (using permutation importance as primary)
     comparison['Agreement_Score'] = 1 / (1 + comparison['Rank_Difference'] + comparison['Importance_Difference'])
     
     return comparison.sort_values('Agreement_Score', ascending=False)
@@ -844,7 +859,7 @@ def write_shap_comparison_to_excel(oob_results: Dict[str, pd.DataFrame],
                 rank_correlation = np.corrcoef(comparison['OOB_Rank'], 
                                              comparison['SHAP_Rank'])[0, 1]
                 
-                summary_data.append({
+                summary_entry = {
                     'Frequency': freq,
                     'Importance_Correlation': correlation,
                     'Rank_Correlation': rank_correlation,
@@ -853,7 +868,30 @@ def write_shap_comparison_to_excel(oob_results: Dict[str, pd.DataFrame],
                     'Top_OOB_Feature': oob_df.iloc[0]['Feature'],
                     'Top_SHAP_Feature': shap_df.iloc[0]['Feature'],
                     'Top_Features_Match': oob_df.iloc[0]['Feature'] == shap_df.iloc[0]['Feature']
-                })
+                }
+                
+                # Add MDI comparison metrics if available
+                if 'MDI_SHAP_Agreement_Score' in comparison.columns:
+                    mdi_correlation = np.corrcoef(comparison['MDI_Normalized'], 
+                                                comparison['SHAP_Normalized'])[0, 1]
+                    mdi_rank_correlation = np.corrcoef(comparison['MDI_Rank'], 
+                                                     comparison['SHAP_Rank'])[0, 1]
+                    
+                    # Find top MDI feature
+                    top_mdi_feature = 'N/A'
+                    if 'Mean_MDI_Importance' in oob_df.columns:
+                        mdi_sorted = oob_df.sort_values('Mean_MDI_Importance', ascending=False)
+                        top_mdi_feature = mdi_sorted.iloc[0]['Feature']
+                    
+                    summary_entry.update({
+                        'MDI_SHAP_Importance_Correlation': mdi_correlation,
+                        'MDI_SHAP_Rank_Correlation': mdi_rank_correlation,
+                        'Mean_MDI_SHAP_Agreement_Score': comparison['MDI_SHAP_Agreement_Score'].mean(),
+                        'Mean_MDI_SHAP_Rank_Difference': comparison['MDI_SHAP_Rank_Difference'].mean(),
+                        'Top_MDI_Feature': top_mdi_feature
+                    })
+                
+                summary_data.append(summary_entry)
         
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name='Comparison_Summary', index=False)
