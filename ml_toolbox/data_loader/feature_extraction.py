@@ -49,6 +49,9 @@ class FeatureConfig:
     max_frequency: Optional[float] = None
     frequency_bands: Optional[List[tuple]] = None
     
+    # Windowing parameters for spectral leakage reduction
+    window_type: str = 'hann'  # Options: 'hann', 'hamming', 'blackman', 'bartlett', 'kaiser', 'none'
+    
     def __post_init__(self):
         """Set default parameters."""
         if self.max_frequency is None:
@@ -147,13 +150,44 @@ class FrequencyDomainFeatures:
     """Extract frequency-domain features from signals."""
     
     @staticmethod
-    def fft_features(signal: np.ndarray, sampling_rate: float) -> tuple:
-        """Extract FFT-based features."""
+    def _apply_window(signal: np.ndarray, window_type: str = 'hann') -> np.ndarray:
+        """Apply windowing function to reduce spectral leakage."""
+        if window_type == 'hann':
+            window = np.hanning(len(signal))
+        elif window_type == 'hamming':
+            window = np.hamming(len(signal))
+        elif window_type == 'blackman':
+            window = np.blackman(len(signal))
+        elif window_type == 'none' or window_type is None:
+            window = np.ones(len(signal))  # No windowing
+        else:
+            # Default to Hann window for unknown types
+            window = np.hanning(len(signal))
+        
+        return signal * window
+    
+    @staticmethod
+    def fft_features(signal: np.ndarray, sampling_rate: float, window_type: str = 'hann') -> tuple:
+        """
+        Extract FFT-based features with windowing to reduce spectral leakage.
+        
+        Args:
+            signal: Input signal array
+            sampling_rate: Sampling rate in Hz
+            window_type: Window function type ('hann', 'hamming', 'blackman', 'none')
+                        Default is 'hann' which provides good balance between main lobe width and side lobe suppression
+        
+        Returns:
+            Tuple of (features_dict, fft_magnitude, fft_frequencies)
+        """
         features = {}
         
+        # Apply windowing to reduce spectral leakage
+        windowed_signal = FrequencyDomainFeatures._apply_window(signal, window_type)
+        
         # Compute FFT
-        fft_vals = np.array(fft(signal))
-        freqs = fftfreq(len(signal), 1/sampling_rate)
+        fft_vals = np.array(fft(windowed_signal))
+        freqs = fftfreq(len(windowed_signal), 1/sampling_rate)
         
         # Only positive frequencies
         n_positive = len(freqs) // 2
@@ -182,7 +216,7 @@ class FrequencyDomainFeatures:
         total_energy = np.sum(magnitude**2)
         cumulative_energy = np.cumsum(magnitude**2)
         rolloff_idx = np.where(cumulative_energy >= threshold * total_energy)[0]
-        return freqs[rolloff_idx[0]] if len(rolloff_idx) > 0 else freqs[-1]
+        return float(freqs[rolloff_idx[0]]) if len(rolloff_idx) > 0 else float(freqs[-1])
     
     @staticmethod
     def spectral_bands_features(magnitude: np.ndarray, freqs: np.ndarray, bands: List[tuple]) -> Dict[str, float]:
@@ -370,7 +404,9 @@ class FeatureExtractor:
         
         # Frequency domain features
         if self.config.frequency_domain:
-            fft_result = self.frequency_domain.fft_features(signal, self.config.sampling_rate)
+            fft_result = self.frequency_domain.fft_features(
+                signal, self.config.sampling_rate, self.config.window_type
+            )
             fft_features, magnitude, freqs = fft_result
             features.update({f"{channel_name}_{k}": v for k, v in fft_features.items()})
             
