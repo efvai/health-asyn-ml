@@ -194,6 +194,17 @@ class FrequencyDomainFeatures:
         fft_magnitude = np.abs(fft_vals[:n_positive])
         fft_freqs = freqs[:n_positive]
         
+        # Normalize FFT magnitude for motor fault detection
+        total_energy = np.sum(fft_magnitude**2)
+        if total_energy > 1e-12:
+            # Normalize by total spectral energy
+            fft_magnitude_normalized = fft_magnitude / np.sqrt(total_energy)
+        else:
+            fft_magnitude_normalized = fft_magnitude
+        
+        # Use normalized magnitude for feature extraction
+        fft_magnitude = fft_magnitude_normalized
+        
         # Spectral features
         features['spectral_centroid'] = np.sum(fft_freqs * fft_magnitude) / (np.sum(fft_magnitude) + 1e-12)
         features['spectral_spread'] = np.sqrt(np.sum((fft_freqs - features['spectral_centroid'])**2 * fft_magnitude) / (np.sum(fft_magnitude) + 1e-12))
@@ -205,7 +216,7 @@ class FrequencyDomainFeatures:
         features['peak_frequency'] = fft_freqs[peak_idx]
         features['peak_magnitude'] = fft_magnitude[peak_idx]
         
-        # Spectral energy
+        # Spectral energy (after normalization, this represents spectral concentration)
         features['spectral_energy'] = np.sum(fft_magnitude**2)
         
         return features, fft_magnitude, fft_freqs

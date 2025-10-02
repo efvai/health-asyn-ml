@@ -22,7 +22,6 @@ from .cv_analysis import (
     plot_cv_scores_by_fold,
     plot_cv_results_comparison,
     create_performance_summary,
-    analyze_frequency_performance_trends,
     run_comprehensive_frequency_analysis
 )
 
@@ -39,7 +38,6 @@ __all__ = [
     'plot_cv_scores_by_fold',
     'plot_cv_results_comparison',
     'create_performance_summary',
-    'analyze_frequency_performance_trends',
     'run_comprehensive_frequency_analysis'
 ]
 

@@ -9,6 +9,7 @@ from sklearn.ensemble import RandomForestClassifier
 from typing import Tuple, List, Dict, Any
 import matplotlib.pyplot as plt
 import seaborn as sns
+from pathlib import Path
 
 
 def extract_features_for_frequency(data_loader, frequency: str, load: str = "no load", 
@@ -70,18 +71,74 @@ def extract_features_for_frequency(data_loader, frequency: str, load: str = "no 
     return features, labels, feature_names, win_metadata
 
 
+def _calculate_permutation_feature_importance(model: RandomForestClassifier, X_val: np.ndarray, y_val: np.ndarray) -> np.ndarray:
+    """
+    Calculate permutation-based feature importance using sklearn's implementation
+    
+    Args:
+        model: Trained RandomForestClassifier
+        X_val: Validation feature matrix (left-out test set)
+        y_val: Validation labels
+        
+    Returns:
+        Permutation-based feature importances
+    """
+    from sklearn.inspection import permutation_importance
+    
+    # Use sklearn's permutation importance on validation set
+    result = permutation_importance(
+        model, X_val, y_val, 
+        n_repeats=50,
+        random_state=42,
+        scoring='accuracy',
+        n_jobs=-1 
+    )
+    
+    # Extract the mean importances from the result
+    return np.array(result.importances_mean)  # type: ignore
+
+
 def get_feature_importance_cv(X: np.ndarray, y: np.ndarray, cv_folds: int = 5) -> np.ndarray:
     """
-    Extract feature importance across CV folds
+    Extract permutation feature importance across CV folds using validation sets
     
     Args:
         X: Feature matrix
         y: Labels
-        cv_folds: Number of CV folds
+        cv_folds: Number of CV folds (set to 1 for simple train/test split)
         
     Returns:
-        Feature importances across folds
+        Permutation-based feature importances across folds (computed on validation sets)
     """
+    # Handle case where CV is disabled (cv_folds = 1) - use simple train/test split
+    if cv_folds == 1:
+        from sklearn.model_selection import train_test_split
+        
+        # Do a single train/test split (80/20)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
+        )
+        
+        # Scale features
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+        
+        # Train model on train set
+        model = RandomForestClassifier(
+            n_estimators=100,
+            random_state=42,
+            max_depth=10,
+            min_samples_split=5,
+            min_samples_leaf=2
+        )
+        model.fit(X_train_scaled, y_train)
+        
+        # Calculate permutation importance on test set
+        perm_importance = _calculate_permutation_feature_importance(model, X_test_scaled, y_test)
+        return np.array([perm_importance])  # Return as 2D array for consistency
+    
+    # Regular CV case
     cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
     feature_importances = []
     
@@ -92,6 +149,7 @@ def get_feature_importance_cv(X: np.ndarray, y: np.ndarray, cv_folds: int = 5) -
         # Scale features
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train_fold)
+        X_val_scaled = scaler.transform(X_val_fold)
         
         # Train model
         model = RandomForestClassifier(
@@ -103,7 +161,9 @@ def get_feature_importance_cv(X: np.ndarray, y: np.ndarray, cv_folds: int = 5) -
         )
         model.fit(X_train_scaled, y_train_fold)
         
-        feature_importances.append(model.feature_importances_)
+        # Calculate permutation importance on validation set
+        perm_importance = _calculate_permutation_feature_importance(model, X_val_scaled, y_val_fold)
+        feature_importances.append(perm_importance)
     
     return np.array(feature_importances)
 
@@ -143,6 +203,139 @@ def analyze_feature_importance(features: np.ndarray, labels: np.ndarray,
     }).sort_values('Mean_Importance', ascending=False)
     
     return importance_df
+
+
+def write_feature_importance_to_excel(importance_results: Dict[str, pd.DataFrame], 
+                                    output_path: str) -> None:
+    """
+    Write feature importance results to Excel format.
+    
+    Args:
+        importance_results: Dictionary mapping frequency to importance DataFrame
+        output_path: Path to save the Excel file (.xlsx)
+    """
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        
+        # Sheet 1: Top Features Comparison (Top 20 features from each frequency)
+        comparison_data = []
+        for freq, importance_df in importance_results.items():
+            top_features = importance_df.head(20)
+            for rank, (_, row) in enumerate(top_features.iterrows(), 1):
+                comparison_data.append({
+                    'Frequency': freq,
+                    'Rank': rank,
+                    'Feature': row['Feature'],
+                    'Mean_Importance': row['Mean_Importance'],
+                    'Std_Importance': row['Std_Importance'],
+                    'Stability_Score': row['Stability_Score']
+                })
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        comparison_df.to_excel(writer, sheet_name='Top_Features_Comparison', index=False)
+        
+        # Sheet 2: Feature Ranking Matrix (Pivot table showing rank of each feature across frequencies)
+        pivot_data = []
+        all_features = set()
+        for importance_df in importance_results.values():
+            all_features.update(importance_df['Feature'].tolist())
+        
+        for feature in all_features:
+            feature_row = {'Feature': feature}
+            for freq, importance_df in importance_results.items():
+                feature_data = importance_df[importance_df['Feature'] == feature]
+                if not feature_data.empty:
+                    rank = feature_data.index[0] + 1  # Convert to 1-based ranking
+                    importance = feature_data['Mean_Importance'].iloc[0]
+                    feature_row[f'{freq}_Rank'] = rank
+                    feature_row[f'{freq}_Importance'] = importance
+                else:
+                    feature_row[f'{freq}_Rank'] = None
+                    feature_row[f'{freq}_Importance'] = 0.0
+            pivot_data.append(feature_row)
+        
+        ranking_df = pd.DataFrame(pivot_data)
+        ranking_df.to_excel(writer, sheet_name='Feature_Ranking_Matrix', index=False)
+        
+        # Sheet 3: Detailed Results by Frequency
+        detailed_data = []
+        for freq, importance_df in importance_results.items():
+            for _, row in importance_df.iterrows():
+                detailed_data.append({
+                    'Frequency': freq,
+                    'Feature': row['Feature'],
+                    'Mean_Importance': row['Mean_Importance'],
+                    'Std_Importance': row['Std_Importance'],
+                    'Stability_Score': row['Stability_Score'],
+                    'Feature_Type': row['Feature'].split('_')[0] if '_' in row['Feature'] else 'Unknown'
+                })
+        
+        detailed_df = pd.DataFrame(detailed_data)
+        detailed_df.to_excel(writer, sheet_name='Detailed_Importance', index=False)
+        
+        # Sheet 4: Feature Type Analysis
+        type_analysis = []
+        for freq, importance_df in importance_results.items():
+            # Group by feature type (first part before underscore)
+            importance_df_copy = importance_df.copy()
+            importance_df_copy['Feature_Type'] = importance_df_copy['Feature'].apply(
+                lambda x: x.split('_')[0] if '_' in x else 'Unknown'
+            )
+            
+            for feature_type in importance_df_copy['Feature_Type'].unique():
+                type_features = importance_df_copy[importance_df_copy['Feature_Type'] == feature_type]
+                type_analysis.append({
+                    'Frequency': freq,
+                    'Feature_Type': feature_type,
+                    'Count': len(type_features),
+                    'Mean_Importance': type_features['Mean_Importance'].mean(),
+                    'Max_Importance': type_features['Mean_Importance'].max(),
+                    'Top_Feature': type_features.iloc[0]['Feature'],
+                    'Avg_Stability': type_features['Stability_Score'].mean()
+                })
+        
+        type_analysis_df = pd.DataFrame(type_analysis)
+        type_analysis_df.to_excel(writer, sheet_name='Feature_Type_Analysis', index=False)
+        
+        # Sheet 5: Analysis Info
+        analysis_info = {
+            'Property': [
+                'Number of Frequencies Analyzed',
+                'Total Unique Features',
+                'Best Performing Frequency (by top feature)',
+                'Most Consistent Frequency (by avg stability)',
+                'Feature with Highest Importance',
+                'Most Stable Feature (across all frequencies)',
+                'Analysis Date'
+            ],
+            'Value': [
+                len(importance_results),
+                len(all_features),
+                max(importance_results.keys(), 
+                    key=lambda x: importance_results[x].iloc[0]['Mean_Importance']),
+                max(importance_results.keys(), 
+                    key=lambda x: importance_results[x]['Stability_Score'].mean()),
+                max([(freq, df.iloc[0]['Feature'], df.iloc[0]['Mean_Importance']) 
+                     for freq, df in importance_results.items()], 
+                    key=lambda x: x[2])[1],
+                max([(freq, df.iloc[0]['Feature'], df.iloc[0]['Stability_Score']) 
+                     for freq, df in importance_results.items()], 
+                    key=lambda x: x[2])[1],
+                pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+            ]
+        }
+        pd.DataFrame(analysis_info).to_excel(writer, sheet_name='Analysis_Info', index=False)
+        
+        # Sheet 7: Individual Frequency Sheets (detailed breakdown for each frequency)
+        for freq, importance_df in importance_results.items():
+            sheet_name = f'Details_{freq.upper()}'
+            if len(sheet_name) > 31:  # Excel sheet name limit
+                sheet_name = f'Det_{freq.upper()}'
+            importance_df.to_excel(writer, sheet_name=sheet_name, index=False)
+    
+    print(f"Feature importance results written to Excel: {output_path}")
 
 
 def plot_feature_importance_comparison(importance_results: Dict[str, pd.DataFrame], 

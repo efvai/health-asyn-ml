@@ -6,9 +6,15 @@ pandas>=1.3.0
 # Machine learning
 scikit-learn>=1.0.0
 
+# Explainable AI
+shap>=0.40.0
+
 # Signal processing and visualization
 matplotlib>=3.4.0
 seaborn>=0.11.0
+
+# Excel export functionality
+openpyxl>=3.0.0
 
 # Optional: For more advanced interpolation methods
 # scipy already provides interpolation functions
