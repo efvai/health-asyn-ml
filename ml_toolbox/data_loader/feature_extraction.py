@@ -25,6 +25,15 @@ except ImportError:
     EMD = None  # type: ignore
     EEMD = None  # type: ignore
 
+# Try to import PCA reduction module
+try:
+    from .pca_reduction import PCAFeatureReducer, PCAConfig, create_pca_config_for_time_domain
+    PCA_AVAILABLE = True
+except ImportError:
+    PCA_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("PCA reduction module not available. Install scikit-learn for PCA functionality.")
+
 logger = logging.getLogger(__name__)
 
 # Sensor-specific sampling rates
@@ -63,6 +72,11 @@ class FeatureConfig:
     entropy_features: bool = False
     complexity_features: bool = False
     
+    # PCA feature reduction
+    apply_pca: bool = True  # Apply PCA to reduce dimensionality of time-domain features
+    pca_variance_threshold: float = 0.95  # Variance threshold for PCA component selection
+    pca_n_components: Optional[int] = None  # Fixed number of components (None for auto)
+    
     # Frequency analysis parameters
     max_frequency: Optional[float] = None
     frequency_bands: Optional[List[tuple]] = None
@@ -78,10 +92,12 @@ class FeatureConfig:
         if self.frequency_bands is None:
             # Default frequency bands for motor analysis
             self.frequency_bands = [
-                (0, 50),      # Low frequency
-                (50, 500),    # Motor fundamental and harmonics
-                (500, 2000),  # High frequency
-                (2000, 5000)  # Very high frequency (bearing defects)
+                (0, 20),      # Very low (rotor speed, DC drift, misalignment)
+                (20, 80),     # Supply fundamental (50/60 Hz) + low-order harmonics
+                (80, 300),    # Sidebands, interharmonics, load-related components
+                (300, 800),   # Medium band: broken rotor bar sidebands, eccentricity
+                (800, 2000),  # High band: mechanical modulations, harmonics
+                (2000, 3500)  # Resonance/bearing-related impacts (use with envelope)
             ]
 
 
@@ -875,7 +891,7 @@ def extract_features_for_ml(windows: np.ndarray,
         metadata_list: Optional list of metadata dicts for categorical features
         
     Returns:
-        Tuple of (feature_matrix, feature_names)
+        Tuple of (feature_matrix, feature_names, pca_reducer_if_used)
     """
     # Auto-detect sampling rate based on sensor type if not provided
     if sampling_rate is None:
@@ -917,11 +933,52 @@ def extract_features_for_ml(windows: np.ndarray,
         feature_matrix = signal_features
         feature_names = signal_feature_names
     
+    # Apply PCA if requested
+    pca_reducer = None
+    if feature_config.apply_pca and PCA_AVAILABLE:
+        try:
+            # Create PCA configuration for time-domain features
+            pca_config = create_pca_config_for_time_domain(
+                n_components=feature_config.pca_n_components,
+                variance_threshold=feature_config.pca_variance_threshold,
+                keep_original=False  # Replace time-domain features with PCA components
+            )
+            
+            # Apply PCA
+            pca_reducer = PCAFeatureReducer(pca_config)
+            feature_matrix, feature_names = pca_reducer.fit_transform(feature_matrix, feature_names)
+            
+            # Log PCA results
+            pca_summary = pca_reducer.get_pca_summary()
+            if pca_summary:
+                logger.info(f"PCA applied: {pca_summary['n_original_features']} -> {pca_summary['n_components']} components")
+                logger.info(f"Total variance explained: {pca_summary['total_variance_explained']:.4f}")
+            
+        except Exception as e:
+            logger.warning(f"PCA application failed: {e}. Continuing without PCA.")
+    elif feature_config.apply_pca and not PCA_AVAILABLE:
+        logger.warning("PCA requested but not available. Install scikit-learn for PCA functionality.")
+    
     logger.info(f"Extracted {len(feature_names)} features from {len(windows)} windows")
     if metadata_list is not None:
-        logger.info(f"  - Signal features: {len(signal_feature_names)}")
+        original_signal_count = len(signal_feature_names)
+        if feature_config.apply_pca and pca_reducer is not None:
+            pca_summary = pca_reducer.get_pca_summary()
+            if pca_summary:
+                signal_count = len([name for name in feature_names if not name.startswith('time_pca')])
+                pca_count = len([name for name in feature_names if name.startswith('time_pca')])
+                logger.info(f"  - Original signal features: {original_signal_count}")
+                logger.info(f"  - Non-PCA signal features: {signal_count}")
+                logger.info(f"  - PCA components: {pca_count}")
+        else:
+            logger.info(f"  - Signal features: {len(signal_feature_names)}")
+        
         if metadata_list:
             categorical_count = len(feature_names) - len(signal_feature_names)
+            if feature_config.apply_pca and pca_reducer is not None:
+                # Adjust count after PCA
+                categorical_count = len([name for name in feature_names 
+                                       if name in categorical_feature_names])
             logger.info(f"  - Categorical features: {categorical_count}")
     
     return feature_matrix, feature_names

@@ -34,6 +34,7 @@ class DataLoader:
                    load: Optional[str] = None, 
                    frequency: Optional[str] = None,
                    sensor_type: Optional[str] = None,
+                   apply_filter: Optional[bool] = True,
                    max_workers: int = 4) -> Tuple[List[np.ndarray], List[Dict]]:
         """
         Load batch of data with optional filtering.
@@ -84,7 +85,8 @@ class DataLoader:
                            load: Optional[str] = None, 
                            frequency: Optional[str] = None,
                            sensor_type: Optional[str] = None,
-                           max_workers: int = 4) -> Tuple:
+                           max_workers: int = 4,
+                           apply_filter: Optional[bool] = True) -> Tuple:
         """
         Load batch of data and return as numpy arrays suitable for ML.
         
@@ -92,7 +94,7 @@ class DataLoader:
             Tuple of (data_array, labels_array, metadata_list)
         """
         data_list, metadata_list = self.load_batch(
-            condition, load, frequency, sensor_type, max_workers
+            condition, load, frequency, sensor_type, apply_filter, max_workers 
         )
         
         if not data_list:

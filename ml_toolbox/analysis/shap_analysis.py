@@ -638,7 +638,7 @@ def plot_shap_importance_comparison(shap_importance_results: Dict[str, pd.DataFr
                     xerr=top_features['Std_SHAP_Importance'], alpha=0.7, capsize=3,
                     color='orange')
         axes[i].set_yticks(range(len(top_features)))
-        axes[i].set_yticklabels([name.split('_')[-1][:15] for name in top_features['Feature']])
+        axes[i].set_yticklabels(top_features['Feature'].tolist())
         axes[i].set_xlabel('SHAP Importance')
         axes[i].set_title(f'Top {top_n} Features (SHAP): {freq.upper()}')
         axes[i].invert_yaxis()

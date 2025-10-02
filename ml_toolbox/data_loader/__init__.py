@@ -15,6 +15,16 @@ from .feature_extraction import (
     extract_features_for_ml, CURRENT_SAMPLING_RATE, VIBRATION_SAMPLING_RATE
 )
 
+# Try to import PCA functionality - may not be available if scikit-learn not installed
+try:
+    from .pca_reduction import (
+        PCAConfig, PCAFeatureReducer, apply_pca_to_features, 
+        create_pca_config_for_time_domain
+    )
+    _PCA_AVAILABLE = True
+except ImportError:
+    _PCA_AVAILABLE = False
+
 __all__ = [
     'DatasetManager',
     'DatasetInfo', 
@@ -38,3 +48,12 @@ __all__ = [
     'CURRENT_SAMPLING_RATE',
     'VIBRATION_SAMPLING_RATE'
 ]
+
+# Add PCA exports if available
+if _PCA_AVAILABLE:
+    __all__.extend([
+        'PCAConfig',
+        'PCAFeatureReducer', 
+        'apply_pca_to_features',
+        'create_pca_config_for_time_domain'
+    ])

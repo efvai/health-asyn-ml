@@ -391,7 +391,7 @@ def plot_permuted_importance_comparison(importance_results: Dict[str, pd.DataFra
         axes[i].barh(range(len(top_features)), top_features['Mean_Importance'], 
                     xerr=top_features['Std_Importance'], alpha=0.7, capsize=3)
         axes[i].set_yticks(range(len(top_features)))
-        axes[i].set_yticklabels([name.split('_')[-1][:15] for name in top_features['Feature']])
+        axes[i].set_yticklabels(top_features['Feature'].tolist())
         axes[i].set_xlabel('Permutation Feature Importance')
         axes[i].set_title(f'Top {top_n} Permutation Features: {freq.upper()}')
         axes[i].invert_yaxis()
@@ -433,7 +433,7 @@ def plot_mdi_importance_comparison(importance_results: Dict[str, pd.DataFrame],
         axes[i].barh(range(len(top_features)), top_features['Mean_MDI_Importance'], 
                     xerr=top_features['Std_MDI_Importance'], alpha=0.7, capsize=3, color='orange')
         axes[i].set_yticks(range(len(top_features)))
-        axes[i].set_yticklabels([name.split('_')[-1][:15] for name in top_features['Feature']])
+        axes[i].set_yticklabels(top_features['Feature'].tolist())
         axes[i].set_xlabel('MDI Feature Importance')
         axes[i].set_title(f'Top {top_n} MDI Features: {freq.upper()}')
         axes[i].invert_yaxis()
