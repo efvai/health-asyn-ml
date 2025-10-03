@@ -92,12 +92,10 @@ class FeatureConfig:
         if self.frequency_bands is None:
             # Default frequency bands for motor analysis
             self.frequency_bands = [
-                (0, 20),      # Very low (rotor speed, DC drift, misalignment)
-                (20, 80),     # Supply fundamental (50/60 Hz) + low-order harmonics
-                (80, 300),    # Sidebands, interharmonics, load-related components
-                (300, 800),   # Medium band: broken rotor bar sidebands, eccentricity
-                (800, 2000),  # High band: mechanical modulations, harmonics
-                (2000, 3500)  # Resonance/bearing-related impacts (use with envelope)
+                (0, 100),      
+                (100, 500),    
+                (500, 2000),   
+                (2000, 3500)   
             ]
 
 
@@ -110,11 +108,7 @@ class TimeDomainFeatures:
         features = {}
         
         # Basic statistics
-        features['mean'] = np.mean(signal)
-        features['std'] = np.std(signal)
-        features['var'] = np.var(signal)
         features['rms'] = np.sqrt(np.mean(signal**2))
-        features['peak'] = np.max(np.abs(signal))
         features['peak_to_peak'] = np.ptp(signal)
         features['min'] = np.min(signal)
         features['max'] = np.max(signal)
@@ -135,6 +129,7 @@ class TimeDomainFeatures:
         # Standardized signal for moment calculation
         signal_std = (signal - np.mean(signal)) / (np.std(signal) + 1e-12)
         
+        features['rms'] = np.sqrt(np.mean(signal**2))
         features['skewness'] = stats.skew(signal)
         features['kurtosis'] = stats.kurtosis(signal)
         features['moment_3'] = np.mean(signal_std**3)
@@ -208,8 +203,7 @@ class FrequencyDomainFeatures:
         Args:
             signal: Input signal array
             sampling_rate: Sampling rate in Hz
-            window_type: Window function type ('hann', 'hamming', 'blackman', 'none')
-                        Default is 'hann' which provides good balance between main lobe width and side lobe suppression
+            window_type: Window function type ('hann', 'hamming', 'blackman', 'none'). Default is 'hann'
         
         Returns:
             Tuple of (features_dict, fft_magnitude, fft_frequencies)
@@ -228,30 +222,40 @@ class FrequencyDomainFeatures:
         fft_magnitude = np.abs(fft_vals[:n_positive])
         fft_freqs = freqs[:n_positive]
         
-        # Normalize FFT magnitude for motor fault detection
+        # Normalize FFT magnitude
         total_energy = np.sum(fft_magnitude**2)
         if total_energy > 1e-12:
             # Normalize by total spectral energy
             fft_magnitude_normalized = fft_magnitude / np.sqrt(total_energy)
         else:
             fft_magnitude_normalized = fft_magnitude
-        
-        # Use normalized magnitude for feature extraction
-        fft_magnitude = fft_magnitude_normalized
-        
+                
         # Spectral features
-        features['spectral_centroid'] = np.sum(fft_freqs * fft_magnitude) / (np.sum(fft_magnitude) + 1e-12)
-        features['spectral_spread'] = np.sqrt(np.sum((fft_freqs - features['spectral_centroid'])**2 * fft_magnitude) / (np.sum(fft_magnitude) + 1e-12))
+        features['spectral_centroid'] = np.sum(fft_freqs * fft_magnitude_normalized) / (np.sum(fft_magnitude_normalized) + 1e-12)
+        features['spectral_spread'] = np.sqrt(np.sum((fft_freqs - features['spectral_centroid'])**2 * fft_magnitude_normalized) / (np.sum(fft_magnitude_normalized) + 1e-12))
+        
+        # Spectral energy
         features['spectral_rolloff'] = FrequencyDomainFeatures._spectral_rolloff(fft_magnitude, fft_freqs, 0.85)
-        features['spectral_flux'] = np.sum(np.diff(fft_magnitude)**2)
-        
-        # Peak frequency
-        peak_idx = np.argmax(fft_magnitude)
-        features['peak_frequency'] = fft_freqs[peak_idx]
-        features['peak_magnitude'] = fft_magnitude[peak_idx]
-        
-        # Spectral energy (after normalization, this represents spectral concentration)
         features['spectral_energy'] = np.sum(fft_magnitude**2)
+        
+        # Spectral entropy - measure of spectral complexity/randomness
+        power_spectrum = fft_magnitude**2
+        power_spectrum_norm = power_spectrum / (np.sum(power_spectrum) + 1e-12)
+        power_spectrum_norm = power_spectrum_norm[power_spectrum_norm > 1e-12]  # Remove near-zeros
+        if len(power_spectrum_norm) > 0:
+            features['spectral_entropy'] = float(-np.sum(power_spectrum_norm * np.log2(power_spectrum_norm + 1e-12)))
+        else:
+            features['spectral_entropy'] = 0.0
+        
+        # Spectral flatness (Wiener entropy) - measure of how noise-like vs tone-like the spectrum is
+        # Ratio of geometric mean to arithmetic mean of power spectrum
+        power_spectrum_positive = power_spectrum[power_spectrum > 1e-12]
+        if len(power_spectrum_positive) > 0:
+            geometric_mean = np.exp(np.mean(np.log(power_spectrum_positive + 1e-12)))
+            arithmetic_mean = np.mean(power_spectrum_positive)
+            features['spectral_flatness'] = float(geometric_mean / (arithmetic_mean + 1e-12))
+        else:
+            features['spectral_flatness'] = 0.0
         
         return features, fft_magnitude, fft_freqs
     
@@ -267,26 +271,59 @@ class FrequencyDomainFeatures:
     def spectral_bands_features(magnitude: np.ndarray, freqs: np.ndarray, bands: List[tuple]) -> Dict[str, float]:
         """Extract features from specific frequency bands."""
         features = {}
-        
+    
         for i, (low_freq, high_freq) in enumerate(bands):
             band_name = f"band_{i+1}_{low_freq}_{high_freq}hz"
             
             # Find indices for frequency band
             band_mask = (freqs >= low_freq) & (freqs <= high_freq)
             band_magnitude = magnitude[band_mask]
+            band_freqs = freqs[band_mask]
             
             if len(band_magnitude) > 0:
+                # Energy and peak features
                 features[f'{band_name}_energy'] = np.sum(band_magnitude**2)
-                features[f'{band_name}_mean'] = np.mean(band_magnitude)
-                features[f'{band_name}_std'] = np.std(band_magnitude)
-                features[f'{band_name}_peak'] = np.max(band_magnitude)
                 features[f'{band_name}_power_ratio'] = features[f'{band_name}_energy'] / (np.sum(magnitude**2) + 1e-12)
+                
+                # Normalize band magnitude for centroid and spread calculations
+                total_band_energy = np.sum(band_magnitude**2)
+                if total_band_energy > 1e-12:
+                    band_magnitude_normalized = band_magnitude / np.sqrt(total_band_energy)
+                else:
+                    band_magnitude_normalized = band_magnitude
+                
+                # Spectral centroid for this band
+                features[f'{band_name}_centroid'] = np.sum(band_freqs * band_magnitude_normalized) / (np.sum(band_magnitude_normalized) + 1e-12)
+                
+                # Spectral spread for this band
+                centroid = features[f'{band_name}_centroid']
+                features[f'{band_name}_spread'] = np.sqrt(np.sum((band_freqs - centroid)**2 * band_magnitude_normalized) / (np.sum(band_magnitude_normalized) + 1e-12))
+                
+                # Spectral entropy for this band
+                power_spectrum = band_magnitude**2
+                power_spectrum_norm = power_spectrum / (np.sum(power_spectrum) + 1e-12)
+                power_spectrum_norm = power_spectrum_norm[power_spectrum_norm > 1e-12]  # Remove near-zeros
+                if len(power_spectrum_norm) > 0:
+                    features[f'{band_name}_entropy'] = float(-np.sum(power_spectrum_norm * np.log2(power_spectrum_norm + 1e-12)))
+                else:
+                    features[f'{band_name}_entropy'] = 0.0
+                
+                # Spectral flatness for this band
+                power_spectrum_positive = power_spectrum[power_spectrum > 1e-12]
+                if len(power_spectrum_positive) > 0:
+                    geometric_mean = np.exp(np.mean(np.log(power_spectrum_positive + 1e-12)))
+                    arithmetic_mean = np.mean(power_spectrum_positive)
+                    features[f'{band_name}_flatness'] = float(geometric_mean / (arithmetic_mean + 1e-12))
+                else:
+                    features[f'{band_name}_flatness'] = 0.0
             else:
                 features[f'{band_name}_energy'] = 0.0
-                features[f'{band_name}_mean'] = 0.0
-                features[f'{band_name}_std'] = 0.0
                 features[f'{band_name}_peak'] = 0.0
                 features[f'{band_name}_power_ratio'] = 0.0
+                features[f'{band_name}_centroid'] = 0.0
+                features[f'{band_name}_spread'] = 0.0
+                features[f'{band_name}_entropy'] = 0.0
+                features[f'{band_name}_flatness'] = 0.0
         
         return features
     

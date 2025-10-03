@@ -11,7 +11,7 @@ from .read_raw import read_raw
 
 def read_current(
     file_path: Union[str, Path],
-    apply_filter: bool = True,
+    apply_filter: bool = False,
     sampling_freq: float = 10000,
     cutoff_freq: float = 3500,
     median_window: int = 7,
@@ -36,8 +36,8 @@ def read_current(
             If apply_filter is False, this is just DC-offset-removed data.
             If apply_filter is True, applies median despiking + Butterworth lowpass filter.
     """
-    # ADC_OFFSET = 2.5  # Original fixed offset (commented out as in MATLAB)
-    
+    # ADC_OFFSET = 2.5  # Original fixed offset
+  
     # Read raw data using base function (2 channels for current)
     raw_data = read_raw(file_path, 2)
     
