@@ -786,7 +786,8 @@ def write_shap_per_class_to_excel(class_importance_results: Dict[str, Dict[str, 
                     class_name = class_names[int(class_label)] if int(class_label) < len(class_names) else f'Class_{class_label}'
                     feature_data = df[df['Feature'] == feature]
                     if not feature_data.empty:
-                        rank = feature_data.index[0] + 1
+                        # Get the rank based on position in the sorted DataFrame (1-indexed)
+                        rank = df.reset_index(drop=True).index[df['Feature'] == feature].tolist()[0] + 1
                         importance = feature_data['Mean_SHAP_Importance'].iloc[0]
                         feature_row[f'{class_name}_Rank'] = rank
                         feature_row[f'{class_name}_Importance'] = importance
@@ -1031,7 +1032,5 @@ def run_comprehensive_shap_analysis(data_loader, frequencies: List[str],
     
     print("=" * 60)
     print(f"SHAP analysis completed for {len(shap_results)} frequencies")
-    if include_per_class:
-        print(f"Per-class analysis completed for {len(per_class_shap_results)} frequencies")
     
     return oob_results, shap_results, per_class_shap_results

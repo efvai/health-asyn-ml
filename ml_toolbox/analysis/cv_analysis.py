@@ -401,11 +401,23 @@ def run_comprehensive_frequency_analysis(data_loader, frequencies: List[str],
     
     for freq in frequencies:
         try:
+            print(f"Starting feature extraction for {freq}...")
+            
             # Extract features
             features, labels, feature_names, metadata = extract_features_for_frequency(
                 data_loader, freq, load, max_windows_per_class=max_windows_per_class, 
                 window_size=window_length, overlap_ratio=window_overlap
             )
+            
+            print(f"Feature extraction completed for {freq}. Shape: {features.shape}")
+            
+            # Export features to Excel if requested
+            if export_to_excel:
+                features_excel_path = f"{output_dir}/features_{freq}_{load.replace(' ', '_')}.xlsx"
+                write_features_to_excel(features, labels, feature_names, features_excel_path, 
+                                       frequency=freq, metadata=metadata)
+            
+            print(f"Starting CV evaluation for {freq}...")
             
             # Evaluate model with cross-validation
             cv_result = evaluate_model_cv(features, labels, freq)
@@ -414,7 +426,13 @@ def run_comprehensive_frequency_analysis(data_loader, frequencies: List[str],
             print(f"{freq} CV analysis completed")
             
         except Exception as e:
-            print(f"Error analyzing {freq}: {str(e)}")
+            import traceback
+            print(f"Error analyzing {freq}:")
+            print(f"Exception type: {type(e).__name__}")
+            print(f"Exception message: {str(e)}")
+            print("Full traceback:")
+            traceback.print_exc()
+            print("-" * 50)
             continue
     
     # Export CV results to Excel if requested

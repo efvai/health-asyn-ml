@@ -73,7 +73,7 @@ class FeatureConfig:
     complexity_features: bool = False
     
     # PCA feature reduction
-    apply_pca: bool = True  # Apply PCA to reduce dimensionality of time-domain features
+    apply_pca: bool = False  # Apply PCA to reduce dimensionality of time-domain features
     pca_variance_threshold: float = 0.95  # Variance threshold for PCA component selection
     pca_n_components: Optional[int] = None  # Fixed number of components (None for auto)
     
@@ -316,6 +316,11 @@ class FrequencyDomainFeatures:
                     features[f'{band_name}_flatness'] = float(geometric_mean / (arithmetic_mean + 1e-12))
                 else:
                     features[f'{band_name}_flatness'] = 0.0
+                
+                # Band-specific peak detection features
+                peak_features = FrequencyDomainFeatures.spectral_peaks_features(band_magnitude, band_freqs, band_name)
+                features.update(peak_features)
+                
             else:
                 features[f'{band_name}_energy'] = 0.0
                 features[f'{band_name}_peak'] = 0.0
@@ -324,6 +329,144 @@ class FrequencyDomainFeatures:
                 features[f'{band_name}_spread'] = 0.0
                 features[f'{band_name}_entropy'] = 0.0
                 features[f'{band_name}_flatness'] = 0.0
+                # Zero peak features for empty bands
+                features[f'{band_name}_peak_count'] = 0.0
+                features[f'{band_name}_noise_floor'] = 0.0
+                features[f'{band_name}_peak_prominence_mean'] = 0.0
+                features[f'{band_name}_peak_prominence_std'] = 0.0
+                features[f'{band_name}_peak_power_mean'] = 0.0
+                features[f'{band_name}_peak_power_std'] = 0.0
+                features[f'{band_name}_dominant_peak_freq'] = 0.0
+                features[f'{band_name}_dominant_peak_power'] = 0.0
+                features[f'{band_name}_peak_density'] = 0.0
+                features[f'{band_name}_dominant_relative_peak_power'] = 0.0
+                features[f'{band_name}_dominant_peak_to_band_energy_ratio'] = 0.0
+                features[f'{band_name}_peak_spacing_mean'] = 0.0
+                features[f'{band_name}_peak_spacing_std'] = 0.0
+                features[f'{band_name}_peak_freq_variance'] = 0.0
+                features[f'{band_name}_peak_freq_std'] = 0.0
+                features[f'{band_name}_peak_freq_range'] = 0.0
+                features[f'{band_name}_peak_freq_cv'] = 0.0
+        
+        return features
+
+    @staticmethod
+    def spectral_peaks_features(magnitude: np.ndarray, freqs: np.ndarray, band_name: str) -> Dict[str, float]:
+        """
+        Extract peak-related features using band-specific peak detection.
+        
+        Args:
+            magnitude: Magnitude spectrum for the band
+            freqs: Frequency array for the band
+            band_name: Name prefix for features
+            
+        Returns:
+            Dictionary of peak-related features
+        """
+        features = {}
+        
+        # Maybe Better to use normalized magnitude?
+        # Need to investigate later
+  
+        from scipy.signal import find_peaks
+            
+        # Calculate band-specific noise floor (median)
+        noise_floor = np.median(magnitude)
+        features[f'{band_name}_noise_floor'] = float(noise_floor)
+        
+        # Find peaks using band-specific thresholds
+        peak_indices, peak_properties = find_peaks(
+            magnitude,
+            height=noise_floor * 3,      # threshold above band baseline
+            prominence=noise_floor * 2,  # prominence relative to band baseline
+            distance=3                   # minimum distance between peaks
+        )
+        
+        # Basic peak count
+        peak_count = len(peak_indices)
+        features[f'{band_name}_peak_count'] = float(peak_count)
+        
+        if peak_count > 0:
+            # Peak frequencies and powers
+            peak_freqs = freqs[peak_indices]
+            peak_powers = magnitude[peak_indices]
+            peak_prominences = peak_properties.get('prominences', np.zeros(peak_count))
+            
+            # Calculate total band power and energy for normalization
+            total_band_power = np.sum(magnitude**2)
+            total_band_energy = np.sum(magnitude**2)  # Same as power for magnitude spectrum
+            
+            # Peak prominence statistics
+            features[f'{band_name}_peak_prominence_mean'] = float(np.mean(peak_prominences))
+            features[f'{band_name}_peak_prominence_std'] = float(np.std(peak_prominences))
+            
+            # Peak power statistics
+            features[f'{band_name}_peak_power_mean'] = float(np.mean(peak_powers))
+            features[f'{band_name}_peak_power_std'] = float(np.std(peak_powers))
+            
+            # Dominant peak (highest power)
+            dominant_idx = np.argmax(peak_powers)
+            dominant_peak_power = peak_powers[dominant_idx]
+            features[f'{band_name}_dominant_peak_freq'] = float(peak_freqs[dominant_idx])
+            features[f'{band_name}_dominant_peak_power'] = float(dominant_peak_power)
+            
+            # 1. Dominant Relative peak power: peak_power / total_band_power
+            features[f'{band_name}_dominant_relative_peak_power'] = float(dominant_peak_power**2 / (total_band_power + 1e-12))
+            
+            # 2. Dominant Peak-to-band energy ratio: peak_power / (sum of all PSD in band)
+            features[f'{band_name}_dominant_peak_to_band_energy_ratio'] = float(dominant_peak_power**2 / (total_band_energy + 1e-12))
+                    
+            # 4. Peak spacing / average distance: average difference in frequency between consecutive peaks
+            if peak_count > 1:
+                sorted_peak_freqs = np.sort(peak_freqs)
+                peak_spacings = np.diff(sorted_peak_freqs)
+                features[f'{band_name}_peak_spacing_mean'] = float(np.mean(peak_spacings))
+                features[f'{band_name}_peak_spacing_std'] = float(np.std(peak_spacings))
+            else:
+                features[f'{band_name}_peak_spacing_mean'] = 0.0
+                features[f'{band_name}_peak_spacing_std'] = 0.0
+            
+            # 5. Peak dispersion / variance: variability in peak frequencies
+            if peak_count > 1:
+                features[f'{band_name}_peak_freq_variance'] = float(np.var(peak_freqs))
+                features[f'{band_name}_peak_freq_std'] = float(np.std(peak_freqs))
+                features[f'{band_name}_peak_freq_range'] = float(np.max(peak_freqs) - np.min(peak_freqs))
+                
+                # Coefficient of variation for peak frequencies (normalized dispersion)
+                mean_peak_freq = np.mean(peak_freqs)
+                if mean_peak_freq > 1e-12:
+                    features[f'{band_name}_peak_freq_cv'] = float(np.std(peak_freqs) / mean_peak_freq)
+                else:
+                    features[f'{band_name}_peak_freq_cv'] = 0.0
+            else:
+                features[f'{band_name}_peak_freq_variance'] = 0.0
+                features[f'{band_name}_peak_freq_std'] = 0.0
+                features[f'{band_name}_peak_freq_range'] = 0.0
+                features[f'{band_name}_peak_freq_cv'] = 0.0
+            
+            # Peak density (peaks per Hz)
+            freq_range = freqs[-1] - freqs[0] if len(freqs) > 1 else 1.0
+            features[f'{band_name}_peak_density'] = float(peak_count / max(freq_range, 1.0))
+            
+        else:
+            # No peaks detected
+            features[f'{band_name}_peak_prominence_mean'] = 0.0
+            features[f'{band_name}_peak_prominence_std'] = 0.0
+            features[f'{band_name}_peak_power_mean'] = 0.0
+            features[f'{band_name}_peak_power_std'] = 0.0
+            features[f'{band_name}_dominant_peak_freq'] = 0.0
+            features[f'{band_name}_dominant_peak_power'] = 0.0
+            features[f'{band_name}_peak_density'] = 0.0
+            
+            # New requested features - zero values
+            features[f'{band_name}_dominant_relative_peak_power'] = 0.0
+            features[f'{band_name}_dominant_peak_to_band_energy_ratio'] = 0.0
+            features[f'{band_name}_peak_spacing_mean'] = 0.0
+            features[f'{band_name}_peak_spacing_std'] = 0.0
+            features[f'{band_name}_peak_freq_variance'] = 0.0
+            features[f'{band_name}_peak_freq_std'] = 0.0
+            features[f'{band_name}_peak_freq_range'] = 0.0
+            features[f'{band_name}_peak_freq_cv'] = 0.0
         
         return features
     
@@ -841,7 +984,21 @@ class FeatureExtractor:
         # Extract features for all windows
         for i in range(n_windows):
             window_features = self.extract_features_multichannel(windows[i], channel_names)
-            feature_matrix[i, :] = [window_features[name] for name in feature_names]
+            
+            # Check for missing features and handle them
+            feature_values = []
+            missing_features = []
+            for name in feature_names:
+                if name in window_features:
+                    feature_values.append(window_features[name])
+                else:
+                    feature_values.append(0.0)  # Default value for missing features
+                    missing_features.append(name)
+            
+            if missing_features:
+                logger.warning(f"Window {i}: Missing features {missing_features[:5]}{'...' if len(missing_features) > 5 else ''} (total: {len(missing_features)})")
+            
+            feature_matrix[i, :] = feature_values
             
             if i % 100 == 0:  # Progress logging
                 logger.info(f"Processed {i}/{n_windows} windows")
