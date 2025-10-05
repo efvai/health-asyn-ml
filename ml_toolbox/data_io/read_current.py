@@ -11,7 +11,7 @@ from .read_raw import read_raw
 
 def read_current(
     file_path: Union[str, Path],
-    apply_filter: bool = True,
+    apply_filter: bool = False,
     sampling_freq: float = 10000,
     cutoff_freq: float = 3500,
     median_window: int = 7,
