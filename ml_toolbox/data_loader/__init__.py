@@ -11,8 +11,7 @@ from .windowing import (
 )
 from .feature_extraction import (
     FeatureConfig, FeatureExtractor, TimeDomainFeatures, 
-    FrequencyDomainFeatures, AdvancedFeatures, HilbertHuangFeatures,
-    extract_features_for_ml, CURRENT_SAMPLING_RATE, VIBRATION_SAMPLING_RATE
+    FrequencyDomainFeatures, extract_features_for_ml, CURRENT_SAMPLING_RATE, VIBRATION_SAMPLING_RATE
 )
 
 # Try to import PCA functionality - may not be available if scikit-learn not installed
@@ -42,8 +41,6 @@ __all__ = [
     'FeatureExtractor',
     'TimeDomainFeatures',
     'FrequencyDomainFeatures',
-    'AdvancedFeatures',
-    'HilbertHuangFeatures',
     'extract_features_for_ml',
     'CURRENT_SAMPLING_RATE',
     'VIBRATION_SAMPLING_RATE'

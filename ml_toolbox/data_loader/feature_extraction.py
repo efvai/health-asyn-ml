@@ -15,16 +15,6 @@ from scipy.fft import fft, fftfreq
 from scipy.signal import hilbert
 import warnings
 
-# Try to import PyEMD for Empirical Mode Decomposition
-try:
-    from PyEMD import EMD, EEMD
-    HHT_AVAILABLE = True
-except ImportError:
-    HHT_AVAILABLE = False
-    # Set to None for type checking - will be checked at runtime
-    EMD = None  # type: ignore
-    EEMD = None  # type: ignore
-
 # Try to import PCA reduction module
 try:
     from .pca_reduction import PCAFeatureReducer, PCAConfig, create_pca_config_for_time_domain
@@ -55,22 +45,6 @@ class FeatureConfig:
     frequency_domain: bool = True
     fft_features: bool = True
     spectral_features: bool = True
-    harmonics_analysis: bool = False
-    
-    # Time-frequency features
-    time_frequency: bool = False
-    wavelet_features: bool = False
-    
-    # Hilbert-Huang Transform features
-    hht_features: bool = False  
-    max_imfs: int = 6  # Maximum number of IMFs to extract
-    ensemble_emd: bool = True  # Use EEMD for noise robustness
-    emd_noise_std: float = 0.2  # Standard deviation for EEMD noise
-    emd_trials: int = 100  # Number of trials for EEMD
-    
-    # Advanced features
-    entropy_features: bool = False
-    complexity_features: bool = False
     
     # PCA feature reduction
     apply_pca: bool = False  # Apply PCA to reduce dimensionality of time-domain features
@@ -110,14 +84,9 @@ class TimeDomainFeatures:
         # Basic statistics
         features['rms'] = np.sqrt(np.mean(signal**2))
         features['peak_to_peak'] = np.ptp(signal)
-        features['min'] = np.min(signal)
-        features['max'] = np.max(signal)
         
         # Percentiles
-        features['percentile_25'] = np.percentile(signal, 25)
-        features['percentile_75'] = np.percentile(signal, 75)
-        features['median'] = np.median(signal)
-        features['iqr'] = features['percentile_75'] - features['percentile_25']
+        features['iqr'] = np.percentile(signal, 75) - np.percentile(signal, 25)
         
         return features
     
@@ -126,16 +95,10 @@ class TimeDomainFeatures:
         """Extract higher-order statistical moments."""
         features = {}
         
-        # Standardized signal for moment calculation
-        signal_std = (signal - np.mean(signal)) / (np.std(signal) + 1e-12)
         
         features['rms'] = np.sqrt(np.mean(signal**2))
         features['skewness'] = stats.skew(signal)
         features['kurtosis'] = stats.kurtosis(signal)
-        features['moment_3'] = np.mean(signal_std**3)
-        features['moment_4'] = np.mean(signal_std**4)
-        features['moment_5'] = np.mean(signal_std**5)
-        features['moment_6'] = np.mean(signal_std**6)
         
         return features
     
@@ -153,27 +116,8 @@ class TimeDomainFeatures:
         
         features['crest_factor'] = peak / (rms + eps)
         features['form_factor'] = rms / (mean_abs + eps)
-        features['impulse_factor'] = peak / (mean_abs + eps)
-        features['clearance_factor'] = peak / (np.mean(np.sqrt(np.abs(signal)))**2 + eps)
-        features['shape_factor'] = rms / (mean_abs + eps)
         
         return features
-    
-    @staticmethod
-    def energy_features(signal: np.ndarray) -> Dict[str, float]:
-        """Extract energy-based features."""
-        features = {}
-        
-        features['energy'] = np.sum(signal**2)
-        features['power'] = np.mean(signal**2)
-        features['log_energy'] = np.log(features['energy'] + 1e-12)
-        
-        # Zero crossing rate
-        zero_crossings = np.sum(np.diff(np.sign(signal)) != 0)
-        features['zero_crossing_rate'] = zero_crossings / len(signal)
-        
-        return features
-
 
 class FrequencyDomainFeatures:
     """Extract frequency-domain features from signals."""
@@ -211,16 +155,19 @@ class FrequencyDomainFeatures:
         features = {}
         
         # Apply windowing to reduce spectral leakage
-        windowed_signal = FrequencyDomainFeatures._apply_window(signal, window_type)
-        
+        #windowed_signal = FrequencyDomainFeatures._apply_window(signal, window_type)
         # Compute FFT
-        fft_vals = np.array(fft(windowed_signal))
-        freqs = fftfreq(len(windowed_signal), 1/sampling_rate)
+        #fft_vals = np.array(fft(windowed_signal))
+        #freqs = fftfreq(len(windowed_signal), 1/sampling_rate)
         
+        # Try to welch
+        from scipy.signal import welch
+        fft_freqs, fft_magnitude = welch(signal, fs=sampling_rate, nperseg=2048)
+
         # Only positive frequencies
-        n_positive = len(freqs) // 2
-        fft_magnitude = np.abs(fft_vals[:n_positive])
-        fft_freqs = freqs[:n_positive]
+        #n_positive = len(freqs) // 2
+        #fft_magnitude = np.abs(fft_vals[:n_positive])
+        #fft_freqs = freqs[:n_positive]
         
         # Normalize FFT magnitude
         total_energy = np.sum(fft_magnitude**2)
@@ -331,7 +278,6 @@ class FrequencyDomainFeatures:
                 features[f'{band_name}_flatness'] = 0.0
                 # Zero peak features for empty bands
                 features[f'{band_name}_peak_count'] = 0.0
-                features[f'{band_name}_noise_floor'] = 0.0
                 features[f'{band_name}_peak_prominence_mean'] = 0.0
                 features[f'{band_name}_peak_prominence_std'] = 0.0
                 features[f'{band_name}_peak_power_mean'] = 0.0
@@ -370,16 +316,14 @@ class FrequencyDomainFeatures:
   
         from scipy.signal import find_peaks
             
-        # Calculate band-specific noise floor (median)
-        noise_floor = np.median(magnitude)
-        features[f'{band_name}_noise_floor'] = float(noise_floor)
-        
         # Find peaks using band-specific thresholds
+        magniture_norm = magnitude / (np.max(magnitude) + 1e-12)
+        noise_floor = np.median(magniture_norm)
         peak_indices, peak_properties = find_peaks(
-            magnitude,
+            magniture_norm,
             height=noise_floor * 3,      # threshold above band baseline
             prominence=noise_floor * 2,  # prominence relative to band baseline
-            distance=3                   # minimum distance between peaks
+            distance=5                   # minimum distance between peaks
         )
         
         # Basic peak count
@@ -469,354 +413,6 @@ class FrequencyDomainFeatures:
             features[f'{band_name}_peak_freq_cv'] = 0.0
         
         return features
-    
-    @staticmethod
-    def harmonics_analysis(magnitude: np.ndarray, freqs: np.ndarray, 
-                          fundamental_freq: float, num_harmonics: int = 10) -> Dict[str, float]:
-        """Analyze harmonic content."""
-        features = {}
-        
-        harmonic_magnitudes = []
-        for h in range(1, num_harmonics + 1):
-            harmonic_freq = h * fundamental_freq
-            # Find closest frequency bin
-            closest_idx = np.argmin(np.abs(freqs - harmonic_freq))
-            if freqs[closest_idx] <= freqs[-1]:
-                harmonic_magnitudes.append(magnitude[closest_idx])
-                features[f'harmonic_{h}_magnitude'] = magnitude[closest_idx]
-            else:
-                harmonic_magnitudes.append(0.0)
-                features[f'harmonic_{h}_magnitude'] = 0.0
-        
-        # THD (Total Harmonic Distortion)
-        if len(harmonic_magnitudes) > 1:
-            fundamental_mag = harmonic_magnitudes[0]
-            harmonics_mag = harmonic_magnitudes[1:]
-            features['thd'] = np.sqrt(np.sum(np.array(harmonics_mag)**2)) / (fundamental_mag + 1e-12)
-        else:
-            features['thd'] = 0.0
-        
-        return features
-
-
-class HilbertHuangFeatures:
-    """Extract Hilbert-Huang Transform (HHT) features from signals."""
-    
-    def __init__(self, sampling_rate: float, max_imfs: int = 6, 
-                 ensemble_emd: bool = True, noise_std: float = 0.2, trials: int = 100):
-        """
-        Initialize HHT feature extractor.
-        
-        Args:
-            sampling_rate: Sampling rate in Hz
-            max_imfs: Maximum number of IMFs to extract
-            ensemble_emd: Use Ensemble EMD for noise robustness
-            noise_std: Standard deviation of noise for EEMD
-            trials: Number of trials for EEMD
-        """
-        self.sampling_rate = sampling_rate
-        self.max_imfs = max_imfs
-        self.ensemble_emd = ensemble_emd
-        self.noise_std = noise_std
-        self.trials = trials
-    
-    def extract_hht_features(self, signal: np.ndarray) -> Dict[str, float]:
-        """
-        Extract comprehensive HHT features from signal.
-        
-        Args:
-            signal: 1D signal array
-            
-        Returns:
-            Dictionary of HHT features
-        """
-        features = {}
-        
-        if not HHT_AVAILABLE:
-            logger.warning("PyEMD not available. Install with: pip install EMD-signal")
-            # Return zero features if PyEMD is not available
-            for i in range(self.max_imfs):
-                features.update({
-                    f'imf_{i+1}_energy': 0.0,
-                    f'imf_{i+1}_mean_freq': 0.0,
-                    f'imf_{i+1}_std_freq': 0.0,
-                    f'imf_{i+1}_mean_amplitude': 0.0,
-                    f'imf_{i+1}_std_amplitude': 0.0,
-                })
-            features.update({
-                'hht_spectral_entropy': 0.0,
-                'total_imf_energy': 0.0,
-                'energy_distribution_entropy': 0.0,
-                'dominant_imf_index': 0.0,
-                'instantaneous_bandwidth': 0.0,
-            })
-            return features
-
-        try:
-            # Perform EMD/EEMD - we know classes are available due to HHT_AVAILABLE check
-            if self.ensemble_emd and EEMD is not None:
-                # EEMD requires both signal (S) and time array (T) as positional arguments
-                emd = EEMD(trials=self.trials, noise_std=self.noise_std)
-                t = np.arange(len(signal)) / self.sampling_rate
-                imfs = emd.emd(signal, t, max_imf=self.max_imfs)
-            elif EMD is not None:
-                # EMD can work with just the signal (T is optional)
-                emd = EMD()
-                imfs = emd.emd(signal, max_imf=self.max_imfs)
-            else:
-                raise ImportError("Neither EMD nor EEMD is available")
-            
-            # Ensure we have the expected number of IMFs
-            if len(imfs) < self.max_imfs:
-                # Pad with zeros if we have fewer IMFs
-                padded_imfs = []
-                for i in range(self.max_imfs):
-                    if i < len(imfs):
-                        padded_imfs.append(imfs[i])
-                    else:
-                        padded_imfs.append(np.zeros_like(signal))
-                imfs = np.array(padded_imfs)
-            else:
-                imfs = np.array(imfs[:self.max_imfs])
-            
-            # Extract features from each IMF
-            imf_energies = []
-            total_energy = 0.0
-            
-            for i, imf in enumerate(imfs):
-                imf_features = self._extract_imf_features(imf, i+1)
-                features.update(imf_features)
-                
-                # Store energy for later calculations
-                energy = np.sum(imf**2)
-                imf_energies.append(energy)
-                total_energy += energy
-            
-            # Global HHT features
-            global_features = self._extract_global_hht_features(imfs, imf_energies, total_energy)
-            features.update(global_features)
-            
-        except Exception as e:
-            logger.warning(f"HHT feature extraction failed: {e}")
-            # Return zero features if extraction fails
-            for i in range(self.max_imfs):
-                features.update({
-                    f'imf_{i+1}_energy': 0.0,
-                    f'imf_{i+1}_mean_freq': 0.0,
-                    f'imf_{i+1}_std_freq': 0.0,
-                    f'imf_{i+1}_mean_amplitude': 0.0,
-                    f'imf_{i+1}_std_amplitude': 0.0,
-                })
-            features.update({
-                'hht_spectral_entropy': 0.0,
-                'total_imf_energy': 0.0,
-                'energy_distribution_entropy': 0.0,
-                'dominant_imf_index': 0.0,
-                'instantaneous_bandwidth': 0.0,
-            })
-        
-        return features
-    
-    def _extract_imf_features(self, imf: np.ndarray, imf_index: int) -> Dict[str, float]:
-        """Extract features from a single IMF."""
-        features = {}
-        prefix = f'imf_{imf_index}'
-        
-        # Energy of IMF
-        features[f'{prefix}_energy'] = float(np.sum(imf**2))
-        
-        # Apply Hilbert transform to get instantaneous amplitude and frequency
-        try:
-            analytic_signal = hilbert(imf)
-            amplitude = np.abs(analytic_signal)  # type: ignore
-            phase = np.unwrap(np.angle(analytic_signal))  # type: ignore
-            
-            # Instantaneous frequency (derivative of phase)
-            inst_freq = np.diff(phase) * self.sampling_rate / (2 * np.pi)
-            
-            # Remove outliers in instantaneous frequency
-            inst_freq = inst_freq[np.abs(inst_freq) < self.sampling_rate/4]
-            
-            if len(inst_freq) > 0:
-                features[f'{prefix}_mean_freq'] = float(np.mean(inst_freq))
-                features[f'{prefix}_std_freq'] = float(np.std(inst_freq))
-            else:
-                features[f'{prefix}_mean_freq'] = 0.0
-                features[f'{prefix}_std_freq'] = 0.0
-            
-            # Instantaneous amplitude features
-            features[f'{prefix}_mean_amplitude'] = float(np.mean(amplitude))
-            features[f'{prefix}_std_amplitude'] = float(np.std(amplitude))
-            
-        except Exception as e:
-            logger.warning(f"Hilbert transform failed for IMF {imf_index}: {e}")
-            features[f'{prefix}_mean_freq'] = 0.0
-            features[f'{prefix}_std_freq'] = 0.0
-            features[f'{prefix}_mean_amplitude'] = 0.0
-            features[f'{prefix}_std_amplitude'] = 0.0
-        
-        return features
-    
-    def _extract_global_hht_features(self, imfs: np.ndarray, imf_energies: List[float], 
-                                   total_energy: float) -> Dict[str, float]:
-        """Extract global features from all IMFs."""
-        features = {}
-        
-        # Total energy
-        features['total_imf_energy'] = float(total_energy)
-        
-        # Energy distribution entropy
-        if total_energy > 1e-12:
-            energy_probs = np.array(imf_energies) / total_energy
-            energy_probs = energy_probs[energy_probs > 1e-12]  # Remove near-zeros
-            if len(energy_probs) > 0:
-                features['energy_distribution_entropy'] = float(-np.sum(energy_probs * np.log2(energy_probs)))
-            else:
-                features['energy_distribution_entropy'] = 0.0
-        else:
-            features['energy_distribution_entropy'] = 0.0
-        
-        # Dominant IMF (highest energy)
-        if len(imf_energies) > 0:
-            features['dominant_imf_index'] = float(np.argmax(imf_energies) + 1)
-        else:
-            features['dominant_imf_index'] = 0.0
-        
-        # Hilbert marginal spectrum entropy
-        try:
-            all_inst_freqs = []
-            all_amplitudes = []
-            
-            for imf in imfs:
-                if np.sum(np.abs(imf)) > 1e-12:  # Skip near-zero IMFs
-                    analytic_signal = hilbert(imf)
-                    amplitude = np.abs(analytic_signal)  # type: ignore
-                    phase = np.unwrap(np.angle(analytic_signal))  # type: ignore
-                    inst_freq = np.diff(phase) * self.sampling_rate / (2 * np.pi)
-                    
-                    # Filter valid frequencies
-                    valid_mask = (inst_freq > 0) & (inst_freq < self.sampling_rate/4)
-                    valid_freqs = inst_freq[valid_mask]
-                    valid_amps = amplitude[1:][valid_mask]  # Skip first element due to diff
-                    
-                    all_inst_freqs.extend(valid_freqs)
-                    all_amplitudes.extend(valid_amps)
-            
-            if len(all_inst_freqs) > 10:  # Need sufficient data points
-                # Create Hilbert spectrum (frequency vs amplitude histogram)
-                freq_bins = np.linspace(0, self.sampling_rate/4, 50)
-                hist, _ = np.histogram(all_inst_freqs, bins=freq_bins, weights=all_amplitudes)
-                hist_norm = hist / (np.sum(hist) + 1e-12)
-                hist_norm = hist_norm[hist_norm > 1e-12]
-                
-                if len(hist_norm) > 0:
-                    features['hht_spectral_entropy'] = float(-np.sum(hist_norm * np.log2(hist_norm)))
-                else:
-                    features['hht_spectral_entropy'] = 0.0
-                
-                # Instantaneous bandwidth
-                features['instantaneous_bandwidth'] = float(np.std(all_inst_freqs))
-            else:
-                features['hht_spectral_entropy'] = 0.0
-                features['instantaneous_bandwidth'] = 0.0
-                
-        except Exception as e:
-            logger.warning(f"Global HHT feature extraction failed: {e}")
-            features['hht_spectral_entropy'] = 0.0
-            features['instantaneous_bandwidth'] = 0.0
-        
-        return features
-
-
-class AdvancedFeatures:
-    """Extract advanced features for complex analysis."""
-    
-    @staticmethod
-    def entropy_features(signal: np.ndarray) -> Dict[str, float]:
-        """Extract entropy-based features."""
-        features = {}
-        
-        # Skip expensive entropy calculations for long signals
-        if len(signal) > 10000:
-            # Use spectral entropy only for long signals
-            try:
-                fft_vals = np.abs(np.array(fft(signal)))
-                psd = fft_vals**2
-                psd_norm = psd / (np.sum(psd) + 1e-12)
-                psd_norm = psd_norm[psd_norm > 1e-12]  # Remove near-zeros
-                features['spectral_entropy'] = -np.sum(psd_norm * np.log2(psd_norm + 1e-12))
-            except:
-                features['spectral_entropy'] = 0.0
-            
-            # Set others to zero for speed
-            features['approximate_entropy'] = 0.0
-            features['sample_entropy'] = 0.0
-        else:
-            # For shorter signals, compute all entropy features
-            try:
-                features['approximate_entropy'] = AdvancedFeatures._approximate_entropy(signal[:2000])  # Limit length
-            except:
-                features['approximate_entropy'] = 0.0
-            
-            try:
-                features['sample_entropy'] = AdvancedFeatures._sample_entropy(signal[:2000])  # Limit length
-            except:
-                features['sample_entropy'] = 0.0
-            
-            try:
-                fft_vals = np.abs(np.array(fft(signal)))
-                psd = fft_vals**2
-                psd_norm = psd / (np.sum(psd) + 1e-12)
-                psd_norm = psd_norm[psd_norm > 1e-12]
-                features['spectral_entropy'] = -np.sum(psd_norm * np.log2(psd_norm + 1e-12))
-            except:
-                features['spectral_entropy'] = 0.0
-        
-        return features
-    
-    @staticmethod
-    def _approximate_entropy(signal: np.ndarray, m: int = 2, r: Optional[float] = None) -> float:
-        """Calculate approximate entropy."""
-        if r is None:
-            r = float(0.2 * np.std(signal))
-        
-        def _maxdist(xi, xj, m):
-            return max([abs(ua - va) for ua, va in zip(xi, xj)])
-        
-        def _phi(m):
-            patterns = np.array([signal[i:i + m] for i in range(len(signal) - m + 1)])
-            C = np.zeros(len(patterns))
-            for i in range(len(patterns)):
-                template = patterns[i]
-                C[i] = sum([1 for j in range(len(patterns)) 
-                           if _maxdist(template, patterns[j], m) <= r]) / float(len(patterns))
-            phi = sum([np.log(c) for c in C if c > 0]) / float(len(patterns))
-            return phi
-        
-        return _phi(m) - _phi(m + 1)
-    
-    @staticmethod
-    def _sample_entropy(signal: np.ndarray, m: int = 2, r: Optional[float] = None) -> float:
-        """Calculate sample entropy."""
-        if r is None:
-            r = float(0.2 * np.std(signal))
-        
-        def _maxdist(xi, xj):
-            return max([abs(ua - va) for ua, va in zip(xi, xj)])
-        
-        def _phi(m):
-            patterns = np.array([signal[i:i + m] for i in range(len(signal) - m + 1)])
-            C = 0
-            for i in range(len(patterns) - 1):
-                template = patterns[i]
-                C += sum([1 for j in range(i + 1, len(patterns)) 
-                         if _maxdist(template, patterns[j]) <= r])
-            return C
-        
-        A = _phi(m)
-        B = _phi(m + 1)
-        return -np.log(B / A) if A > 0 and B > 0 else 0.0
-
 
 class FeatureExtractor:
     """Main feature extraction class."""
@@ -825,19 +421,6 @@ class FeatureExtractor:
         self.config = config
         self.time_domain = TimeDomainFeatures()
         self.frequency_domain = FrequencyDomainFeatures()
-        self.advanced = AdvancedFeatures()
-        
-        # Initialize HHT extractor if enabled
-        if self.config.hht_features:
-            self.hht = HilbertHuangFeatures(
-                sampling_rate=self.config.sampling_rate,
-                max_imfs=self.config.max_imfs,
-                ensemble_emd=self.config.ensemble_emd,
-                noise_std=self.config.emd_noise_std,
-                trials=self.config.emd_trials
-            )
-        else:
-            self.hht = None
     
     def extract_features(self, signal: np.ndarray, channel_name: str = "ch") -> Dict[str, float]:
         """
@@ -856,10 +439,7 @@ class FeatureExtractor:
         if self.config.time_domain:
             time_features = self.time_domain.basic_statistics(signal)
             features.update({f"{channel_name}_{k}": v for k, v in time_features.items()})
-            
-            energy_features = self.time_domain.energy_features(signal)
-            features.update({f"{channel_name}_{k}": v for k, v in energy_features.items()})
-        
+                   
         if self.config.statistical_moments:
             moment_features = self.time_domain.statistical_moments(signal)
             features.update({f"{channel_name}_{k}": v for k, v in moment_features.items()})
@@ -881,16 +461,6 @@ class FeatureExtractor:
                     magnitude, freqs, self.config.frequency_bands
                 )
                 features.update({f"{channel_name}_{k}": v for k, v in band_features.items()})
-        
-        # Advanced features
-        if self.config.entropy_features:
-            entropy_features = self.advanced.entropy_features(signal)
-            features.update({f"{channel_name}_{k}": v for k, v in entropy_features.items()})
-        
-        # Hilbert-Huang Transform features
-        if self.config.hht_features and self.hht is not None:
-            hht_features = self.hht.extract_hht_features(signal)
-            features.update({f"{channel_name}_{k}": v for k, v in hht_features.items()})
         
         return features
     
@@ -917,7 +487,11 @@ class FeatureExtractor:
         all_features = {}
         
         # Extract features for each channel
-        for ch_idx, ch_name in enumerate(channel_names):
+
+        # Get only first channel of current (TEMP)
+        only_one_phase = ["current_phase_a"]
+
+        for ch_idx, ch_name in enumerate(only_one_phase):
             ch_signal = signal[:, ch_idx]
             ch_features = self.extract_features(ch_signal, ch_name)
             all_features.update(ch_features)
@@ -945,11 +519,100 @@ class FeatureExtractor:
                 corr = np.corrcoef(signal[:, i], signal[:, j])[0, 1]
                 features[f"{ch1_name}_{ch2_name}_correlation"] = corr if not np.isnan(corr) else 0.0
                 
-                # Phase difference (simplified)
-                fft1 = np.array(fft(signal[:, i]))
-                fft2 = np.array(fft(signal[:, j]))
-                phase_diff = float(np.mean(np.angle(fft1) - np.angle(fft2)))
-                features[f"{ch1_name}_{ch2_name}_phase_diff"] = phase_diff
+                # Advanced cross-channel features using PSD analysis
+                cross_psd_features = self._extract_cross_psd_features(
+                    signal[:, i], signal[:, j], ch1_name, ch2_name
+                )
+                features.update(cross_psd_features)
+        
+        return features
+    
+    def _extract_cross_psd_features(self, signal_a: np.ndarray, signal_b: np.ndarray,
+                                   ch1_name: str, ch2_name: str) -> Dict[str, float]:
+        """Extract cross-channel features based on PSD analysis and coherence."""
+        from scipy.signal import welch, find_peaks, coherence
+        
+        features = {}
+        fs = self.config.sampling_rate
+        
+        try:
+            # Compute PSDs using same parameters as fft_features method
+            fA, psdA = welch(signal_a, fs=fs, nperseg=2048)
+            fB, psdB = welch(signal_b, fs=fs, nperseg=2048)
+            
+            # Find peaks using similar approach as spectral_peaks_features
+            # Normalize PSDs for peak detection
+            psdA_norm = psdA / (np.max(psdA) + 1e-12)
+            psdB_norm = psdB / (np.max(psdB) + 1e-12)
+            
+            noise_floor_A = np.median(psdA_norm)
+            noise_floor_B = np.median(psdB_norm)
+            
+            peaksA, _ = find_peaks(
+                psdA_norm,
+                height=noise_floor_A * 3,
+                prominence=noise_floor_A * 2,
+                distance=5
+            )
+            peaksB, _ = find_peaks(
+                psdB_norm,
+                height=noise_floor_B * 3,
+                prominence=noise_floor_B * 2,
+                distance=5
+            )
+            
+            # Get top peaks sorted by power
+            if len(peaksA) > 0 and len(peaksB) > 0:
+                topA = sorted(zip(fA[peaksA], psdA[peaksA]), key=lambda x: x[1], reverse=True)
+                topB = sorted(zip(fB[peaksB], psdB[peaksB]), key=lambda x: x[1], reverse=True)
+                
+                fA1, pA1 = topA[0]
+                fB1, pB1 = topB[0]
+                
+                # Cross-phase features
+                diff_power = abs(pA1 - pB1)
+                ratio_power = pA1 / (pB1 + 1e-12)
+                diff_freq = abs(fA1 - fB1)
+                ratio_freq = fA1 / (fB1 + 1e-12)
+                
+                features[f"{ch1_name}_{ch2_name}_cross_diff_power"] = float(diff_power)
+                features[f"{ch1_name}_{ch2_name}_cross_ratio_power"] = float(ratio_power)
+                features[f"{ch1_name}_{ch2_name}_cross_diff_freq"] = float(diff_freq)
+                features[f"{ch1_name}_{ch2_name}_cross_ratio_freq"] = float(ratio_freq)
+            else:
+                # No peaks found in one or both channels
+                features[f"{ch1_name}_{ch2_name}_cross_diff_power"] = 0.0
+                features[f"{ch1_name}_{ch2_name}_cross_ratio_power"] = 1.0
+                features[f"{ch1_name}_{ch2_name}_cross_diff_freq"] = 0.0
+                features[f"{ch1_name}_{ch2_name}_cross_ratio_freq"] = 1.0
+            
+            # Coherence analysis
+            freqs_coh, coh = coherence(signal_a, signal_b, fs=fs, nperseg=2048)
+            mean_coh = np.mean(coh)
+            
+            # Peak coherence at dominant frequency
+            if len(peaksA) > 0:
+                # Find coherence at dominant frequency of channel A
+                dominant_freq_idx = np.argmax(psdA)
+                # Find closest frequency in coherence array
+                freq_diff = np.abs(freqs_coh - fA[dominant_freq_idx])
+                closest_idx = np.argmin(freq_diff)
+                peak_coh = coh[closest_idx]
+            else:
+                peak_coh = mean_coh  # Fallback to mean coherence
+            
+            features[f"{ch1_name}_{ch2_name}_cross_mean_coherence"] = float(mean_coh)
+            features[f"{ch1_name}_{ch2_name}_cross_peak_coherence"] = float(peak_coh)
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract cross-PSD features for {ch1_name}_{ch2_name}: {e}")
+            # Fallback values
+            features[f"{ch1_name}_{ch2_name}_cross_diff_power"] = 0.0
+            features[f"{ch1_name}_{ch2_name}_cross_ratio_power"] = 1.0
+            features[f"{ch1_name}_{ch2_name}_cross_diff_freq"] = 0.0
+            features[f"{ch1_name}_{ch2_name}_cross_ratio_freq"] = 1.0
+            features[f"{ch1_name}_{ch2_name}_cross_mean_coherence"] = 0.0
+            features[f"{ch1_name}_{ch2_name}_cross_peak_coherence"] = 0.0
         
         return features
     

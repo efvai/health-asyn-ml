@@ -23,7 +23,10 @@ from .cv_analysis import (
     plot_cv_scores_by_fold,
     plot_cv_results_comparison,
     create_performance_summary,
-    run_comprehensive_frequency_analysis
+    run_comprehensive_frequency_analysis,
+    evaluate_incremental_features_cv,
+    plot_incremental_feature_performance,
+    write_incremental_results_to_excel
 )
 
 __all__ = [
@@ -40,7 +43,10 @@ __all__ = [
     'plot_cv_scores_by_fold',
     'plot_cv_results_comparison',
     'create_performance_summary',
-    'run_comprehensive_frequency_analysis'
+    'run_comprehensive_frequency_analysis',
+    'evaluate_incremental_features_cv',
+    'plot_incremental_feature_performance',
+    'write_incremental_results_to_excel'
 ]
 
 __version__ = "1.0.0"

@@ -21,12 +21,21 @@ from .data_loader.windowing import (
 # Import feature extraction utilities
 from .data_loader.feature_extraction import (
     FeatureConfig, FeatureExtractor, TimeDomainFeatures, 
-    FrequencyDomainFeatures, AdvancedFeatures, extract_features_for_ml,
+    FrequencyDomainFeatures, extract_features_for_ml,
     extract_categorical_features
 )
 
 # Import analysis modules
 from . import analysis
+
+# Import key analysis functions for convenience
+from .analysis import (
+    evaluate_incremental_features_cv,
+    plot_incremental_feature_performance,
+    write_incremental_results_to_excel,
+    extract_features_for_frequency,
+    run_comprehensive_frequency_analysis
+)
 
 __all__ = [
     'data_io',
@@ -47,9 +56,13 @@ __all__ = [
     'FeatureExtractor',
     'TimeDomainFeatures',
     'FrequencyDomainFeatures',
-    'AdvancedFeatures',
     'extract_features_for_ml',
-    'extract_categorical_features'
+    'extract_categorical_features',
+    'evaluate_incremental_features_cv',
+    'plot_incremental_feature_performance',
+    'write_incremental_results_to_excel',
+    'extract_features_for_frequency',
+    'run_comprehensive_frequency_analysis',
 ]
 
 __version__ = "1.0.0"
