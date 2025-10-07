@@ -777,21 +777,5 @@ def write_incremental_results_to_excel(incremental_results: Dict[str, Any],
         
         feature_order_df = pd.DataFrame(feature_order_data)
         feature_order_df.to_excel(writer, sheet_name='Feature_Selection_Order', index=False)
-        
-        # Sheet 5: Feature Importance Progression
-        importance_data = []
-        for result in results:
-            for i, (feat_idx, importance) in enumerate(zip(result['selected_indices'], result['feature_importance'])):
-                importance_data.append({
-                    'N_Features': result['n_features'],
-                    'Feature_Index': feat_idx,
-                    'Feature_Name': result['selected_feature_names'][i],
-                    'Feature_Importance': importance,
-                    'Rank': i + 1
-                })
-        
-        importance_df = pd.DataFrame(importance_data)
-        importance_df.to_excel(writer, sheet_name='Feature_Importance_Progression', index=False)
-    
+
     print(f"Incremental results written to Excel: {output_path}")
-    print(f"Sheets created: Summary, Performance_Progression, CV_Scores_Detail, Feature_Selection_Order, Feature_Importance_Progression")

@@ -1,0 +1,69 @@
+\documentclass{report}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{russian}
+\setotherlanguage{english}
+
+\setmainfont{PT Serif}
+\setsansfont{PT Sans}
+
+% Packages for tables and references
+\usepackage{mdframed}
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+\usepackage{svg}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage[table]{xcolor}
+\usepackage{geometry}
+\usepackage{tocloft}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usepackage{colortbl}
+\pgfplotsset{compat=1.18}
+\usepackage[
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue,
+    bookmarks=true,
+    bookmarksopen=true,
+    pdfusetitle=true
+]{hyperref}
+
+% Chapter heading style: show "1. Введение" (no "Глава")
+\usepackage{titlesec}
+    	\titleformat{\chapter}[hang]{\normalfont\huge\bfseries}{\thechapter.}{1em}{}
+
+% Configure table of contents formatting
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+
+% Russian name of listings
+\renewcommand{\lstlistingname}{Листинг}
+
+% Page setup for wide table
+\geometry{
+    a4paper,
+    left=1cm,
+    right=1cm,
+    top=2cm,
+    bottom=2cm
+}
+
+\begin{document}
+
+{\centering \textbf{\Large Содержание} \par}
+\vspace{1em}
+\makeatletter
+\@starttoc{toc}
+\makeatother
+\newpage
+
+\input{../chapters/introduction.tex}
+
+\input{../chapters/test_bench_descr.tex}
+
+\end{document}

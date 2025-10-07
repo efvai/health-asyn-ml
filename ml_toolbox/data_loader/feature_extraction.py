@@ -516,8 +516,8 @@ class FeatureExtractor:
                 ch2_name = channel_names[j]
                 
                 # Correlation coefficient
-                corr = np.corrcoef(signal[:, i], signal[:, j])[0, 1]
-                features[f"{ch1_name}_{ch2_name}_correlation"] = corr if not np.isnan(corr) else 0.0
+                #corr = np.corrcoef(signal[:, i], signal[:, j])[0, 1]
+                #features[f"{ch1_name}_{ch2_name}_correlation"] = corr if not np.isnan(corr) else 0.0
                 
                 # Advanced cross-channel features using PSD analysis
                 cross_psd_features = self._extract_cross_psd_features(
