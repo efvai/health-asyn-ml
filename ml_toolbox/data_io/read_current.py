@@ -11,7 +11,7 @@ from .read_raw import read_raw
 
 def read_current(
     file_path: Union[str, Path],
-    apply_filter: bool = True,
+    apply_filter: bool = False,
     sampling_freq: float = 10000,
     cutoff_freq: float = 3500,
     median_window: int = 7,
@@ -62,5 +62,10 @@ def read_current(
         
         # Step 2: Apply Butterworth lowpass filter with zero-phase filtering
         filtered_data[:, channel] = filtfilt(b, a, despiked)
+
+        # Normalize by RMS
+        # rms_value = np.sqrt(np.mean(filtered_data[:, channel]**2))
+        # if rms_value > 0:
+        #     filtered_data[:, channel] /= rms_value
 
     return filtered_data
