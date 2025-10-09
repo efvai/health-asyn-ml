@@ -14,6 +14,10 @@ from .feature_extraction import (
     FrequencyDomainFeatures, extract_features_for_ml, CURRENT_SAMPLING_RATE, VIBRATION_SAMPLING_RATE
 )
 
+from .envelope_analyzer import (
+    HilbertEnvelopeAnalyzer, EnvelopeConfig
+)
+
 # Try to import PCA functionality - may not be available if scikit-learn not installed
 try:
     from .pca_reduction import (
@@ -43,7 +47,9 @@ __all__ = [
     'FrequencyDomainFeatures',
     'extract_features_for_ml',
     'CURRENT_SAMPLING_RATE',
-    'VIBRATION_SAMPLING_RATE'
+    'VIBRATION_SAMPLING_RATE',
+    'HilbertEnvelopeAnalyzer',
+    'EnvelopeConfig'
 ]
 
 # Add PCA exports if available

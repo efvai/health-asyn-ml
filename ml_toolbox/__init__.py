@@ -25,6 +25,10 @@ from .data_loader.feature_extraction import (
     extract_categorical_features
 )
 
+from .data_loader.envelope_analyzer import (
+    HilbertEnvelopeAnalyzer, EnvelopeConfig
+)
+
 # Import analysis modules
 from . import analysis
 
@@ -63,6 +67,8 @@ __all__ = [
     'write_incremental_results_to_excel',
     'extract_features_for_frequency',
     'run_comprehensive_frequency_analysis',
+    'HilbertEnvelopeAnalyzer',
+    'EnvelopeConfig'
 ]
 
 __version__ = "1.0.0"
