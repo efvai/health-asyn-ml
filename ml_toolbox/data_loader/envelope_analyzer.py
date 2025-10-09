@@ -173,13 +173,13 @@ class HilbertEnvelopeAnalyzer:
             - 'sampling_rate': Sampling rate used
         """
         # Get the requested signal stage
-        if stage == 'original':
-            target_signal = signal
+        if stage != 'envelope_filtered' and stage != 'envelope_decimated':
             fs = self.config.sampling_rate
         else:
-            stages = self.extract_envelope_with_stages(signal, return_stages=True)
-            target_signal = stages[stage]
-            fs = self.config.envelope_fs if 'envelope' in stage else self.config.sampling_rate
+            fs = self.config.envelope_fs
+
+        stages = self.extract_envelope_with_stages(signal, return_stages=True)
+        target_signal = stages[stage]
         
         if nperseg is not None:
             # Use Welch's method for better noise reduction
