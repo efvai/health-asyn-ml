@@ -165,22 +165,40 @@ class HilbertEnvelopeFeatures:
         median = np.median(env_spectrum['magnitude'][:cutoff_idx_h])
         peaks = analyzer.find_spectral_peaks(env_spectrum, num_peaks=10, distance=2, prominence=median, height=median*2)
         peak_count = len(peaks["peak_indices"])
+        
+        # Add THD-like harmonic analysis features using found peaks
         if peak_count > 0:
             peak_freqs = peaks["peak_freqs"]
             peak_mags = peaks["peak_magnitudes"]
+            
+            # Use dominant peak as fundamental frequency
+            dom_idx = np.argmax(peak_mags)
+            f0 = peak_freqs[dom_idx]
+            
+            # Extract harmonic analysis features
+            harmonic_features = HilbertEnvelopeFeatures._compute_harmonic_features(
+                env_spectrum, peaks, f0, max_harmonics=5
+            )
+            features.update(harmonic_features)
 
             total_power = np.sum(peak_mags**2)
             features["env_peak_power_mean"] = float(np.mean(peak_mags))
             features["env_peak_power_std"] = float(np.std(peak_mags))
 
-            dom_idx = np.argmax(peak_mags)
             features["env_dom_rel_peak_power"] = float(peak_mags[dom_idx]**2 / (total_power + 1e-12))
-            features["env_dom_peak_to_band_energy_ratio"] = float(peak_mags[dom_idx]**2 / (np.sum(env_spectrum['magnitude']**2) + 1e-12))
         else:
+            # Add zero values for harmonic features when no peaks found
+            features.update({
+                "env_thd_power_frac": 0.0,
+                "env_harmonic_ratio": 0.0,
+                "env_fundamental_power_ratio": 0.0,
+                "env_harmonic_count": 0.0,
+                "env_harmonic_regularity": 0.0
+            })
+            
             features["env_peak_power_mean"] = 0
             features["env_peak_power_std"] = 0
             features["env_dom_rel_peak_power"] = 0
-            features["env_dom_peak_to_band_energy_ratio"] = 0
 
         if peak_count > 1:
             peak_freqs = peaks["peak_freqs"]
@@ -200,6 +218,90 @@ class HilbertEnvelopeFeatures:
             features["env_peak_freq_cv"] = 0
             features["env_peak_density"] = 0
 
+        return features
+    
+    @staticmethod
+    def _compute_harmonic_features(env_spectrum: Dict, peaks: Dict, f0: float, 
+                                 max_harmonics: int = 5, tolerance_factor: float = 0.1) -> Dict[str, float]:
+        """
+        Compute THD-like harmonic analysis features using detected peaks.
+        
+        Args:
+            env_spectrum: Spectrum dictionary with 'freqs' and 'magnitude'
+            peaks: Peaks dictionary with 'peak_freqs' and 'peak_magnitudes'
+            f0: Fundamental frequency in Hz
+            max_harmonics: Maximum number of harmonics to analyze
+            tolerance_factor: Relative tolerance for harmonic matching (e.g., 0.1 = 10%)
+            
+        Returns:
+            Dictionary of harmonic features
+        """
+        features = {}
+        
+        freqs = env_spectrum['freqs']
+        magnitude = env_spectrum['magnitude']
+        power_spectrum = magnitude**2
+        total_power = np.sum(power_spectrum) + 1e-12
+        
+        peak_freqs = peaks['peak_freqs']
+        peak_mags = peaks['peak_magnitudes']
+        peak_powers = peak_mags**2
+        
+        # Find harmonics by matching peaks to harmonic frequencies
+        harmonic_powers = []
+        harmonic_freqs = []
+        found_harmonics = []
+        
+        for h in range(1, max_harmonics + 1):
+            target_freq = h * f0
+            
+            # Skip if target frequency is beyond spectrum range
+            if target_freq > freqs[-1]:
+                break
+                
+            # Find peak closest to harmonic frequency within tolerance
+            tolerance = tolerance_factor * target_freq
+            freq_diffs = np.abs(peak_freqs - target_freq)
+            closest_idx = np.argmin(freq_diffs)
+            
+            if freq_diffs[closest_idx] <= tolerance:
+                # Found a peak close enough to be considered a harmonic
+                harmonic_power = peak_powers[closest_idx]
+                harmonic_freq = peak_freqs[closest_idx]
+                
+                harmonic_powers.append(harmonic_power)
+                harmonic_freqs.append(harmonic_freq)
+                found_harmonics.append(h)
+        
+        # Compute harmonic analysis features
+        if len(harmonic_powers) > 0:
+            total_harmonic_power = np.sum(harmonic_powers)
+            fundamental_power = harmonic_powers[0] if 1 in found_harmonics else 0.0
+            
+            # THD calculations
+            thd_power_frac = total_harmonic_power / total_power
+            features["env_thd_power_frac"] = float(thd_power_frac)
+            features["env_harmonic_ratio"] = float(total_harmonic_power / (np.sum(peak_powers) + 1e-12))
+            features["env_fundamental_power_ratio"] = float(fundamental_power / total_power)
+            features["env_harmonic_count"] = float(len(found_harmonics))
+            
+            # Harmonic regularity - measure how well peaks match expected harmonic frequencies
+            if len(found_harmonics) > 1:
+                expected_freqs = np.array([h * f0 for h in found_harmonics])
+                actual_freqs = np.array(harmonic_freqs)
+                freq_errors = np.abs(actual_freqs - expected_freqs) / expected_freqs
+                features["env_harmonic_regularity"] = float(1.0 / (1.0 + np.mean(freq_errors)))
+            else:
+                features["env_harmonic_regularity"] = 1.0 if len(found_harmonics) == 1 else 0.0
+                
+        else:
+            # No harmonics found
+            features["env_thd_power_frac"] = 0.0
+            features["env_harmonic_ratio"] = 0.0
+            features["env_fundamental_power_ratio"] = 0.0
+            features["env_harmonic_count"] = 0.0
+            features["env_harmonic_regularity"] = 0.0
+            
         return features
     
     @staticmethod
