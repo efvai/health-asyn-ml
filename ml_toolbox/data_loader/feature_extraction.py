@@ -14,6 +14,7 @@ from scipy import signal, stats
 from scipy.fft import fft, fftfreq
 from scipy.signal import hilbert
 import warnings
+from .envelope_analyzer import HilbertEnvelopeAnalyzer, EnvelopeConfig
 
 # Try to import PCA reduction module
 try:
@@ -38,13 +39,17 @@ class FeatureConfig:
     
     # Time domain features
     time_domain: bool = True
-    statistical_moments: bool = True
-    shape_factors: bool = True
-    
+
     # Frequency domain features
-    frequency_domain: bool = True
-    fft_features: bool = True
-    spectral_features: bool = True
+    frequency_domain: bool = False
+    fft_features: bool = False
+    spectral_features: bool = False
+
+    # Hilbert envelope features
+    hilbert_envelope: bool = True
+
+    # Cross Channel
+    cross_channel: bool = False  # Compute cross-channel features (e.g., correlation)
     
     # PCA feature reduction
     apply_pca: bool = False  # Apply PCA to reduce dimensionality of time-domain features
@@ -83,40 +88,202 @@ class TimeDomainFeatures:
         
         # Basic statistics
         features['rms'] = np.sqrt(np.mean(signal**2))
-        features['peak_to_peak'] = np.ptp(signal)
+        #features['peak_to_peak'] = np.ptp(signal)
+        #features['skewness'] = stats.skew(signal)
+        #features['kurtosis'] = stats.kurtosis(signal)
         
         # Percentiles
-        features['iqr'] = np.percentile(signal, 75) - np.percentile(signal, 25)
-        
-        return features
-    
-    @staticmethod
-    def statistical_moments(signal: np.ndarray) -> Dict[str, float]:
-        """Extract higher-order statistical moments."""
-        features = {}
-        
-        
-        features['rms'] = np.sqrt(np.mean(signal**2))
-        features['skewness'] = stats.skew(signal)
-        features['kurtosis'] = stats.kurtosis(signal)
-        
-        return features
-    
-    @staticmethod
-    def shape_factors(signal: np.ndarray) -> Dict[str, float]:
-        """Extract shape factor features."""
-        features = {}
-        
-        rms = np.sqrt(np.mean(signal**2))
+        #features['iqr'] = np.percentile(signal, 75) - np.percentile(signal, 25)
+
+        eps = 1e-12
         peak = np.max(np.abs(signal))
         mean_abs = np.mean(np.abs(signal))
+        #features['crest_factor'] = peak / (features['rms'] + eps)
+        #features['form_factor'] = features['rms'] / (mean_abs + eps)
         
-        # Avoid division by zero
+        return features
+    
+class HilbertEnvelopeFeatures:
+    """Extract Hilbert envelope features from signals."""
+    
+    @staticmethod
+    def hilbert_envelope_features(signal: np.ndarray) -> Dict[str, float]:
+        """Extract features from the Hilbert envelope of the signal."""
+        features = {}
+        
+        carrier_freq = 3330
+        env_conf = EnvelopeConfig(
+            bandpass_low=carrier_freq - 50,
+            bandpass_high=carrier_freq + 50,
+            lowpass_cutoff=200.0,
+            filter_order=4,
+            decimation_factor=5,
+            sampling_rate=10000 # current fs
+        )
+        analyzer = HilbertEnvelopeAnalyzer(env_conf)
+        envelope = analyzer.extract_envelope(signal)
+    
+        # Basic envelope statistics
+        features['env_rms'] = np.sqrt(np.mean(envelope**2))
+        features['env_ptp'] = np.ptp(envelope)
+        features['env_kurt'] = stats.kurtosis(envelope)
+        features['env_skew'] = stats.skew(envelope)
+        
+        # Envelope shape factors
         eps = 1e-12
+        #features['env_crest_factor'] = np.max(envelope) / (features['env_rms'] + eps) # 0.99 corr with skew
+        features['env_form_factor'] = features['env_rms'] / (np.mean(np.abs(envelope)) + eps)
+
+        env_spectrum = analyzer.compute_fft_spectrum(signal, 'envelope_decimated', nperseg=512, normalize=True)
+
+        features['env_centroid'] = np.sum(env_spectrum["freqs"] * env_spectrum["magnitude"]) / (np.sum(env_spectrum["magnitude"]) + 1e-12)
+        features['env_spread'] = np.sqrt(np.sum((env_spectrum["freqs"] - features['env_centroid'])**2 * env_spectrum["magnitude"]) / (np.sum(env_spectrum["magnitude"]) + 1e-12))
+
+        # Spectral entropy - measure of spectral complexity/randomness
+        power_spectrum = env_spectrum['magnitude']**2
+        power_spectrum_norm = power_spectrum / (np.sum(power_spectrum) + 1e-12)
+        power_spectrum_norm = power_spectrum_norm[power_spectrum_norm > 1e-12]  # Remove near-zeros
+        if len(power_spectrum_norm) > 0:
+            features['env_entropy'] = float(-np.sum(power_spectrum_norm * np.log2(power_spectrum_norm + 1e-12)))
+        else:
+            features['env_entropy'] = 0.0
+
+        # Spectral flatness (Wiener entropy) - measure of how noise-like vs tone-like the spectrum is
+        # Ratio of geometric mean to arithmetic mean of power spectrum
+        power_spectrum_positive = power_spectrum[power_spectrum > 1e-12]
+        if len(power_spectrum_positive) > 0:
+            geometric_mean = np.exp(np.mean(np.log(power_spectrum_positive + 1e-12)))
+            arithmetic_mean = np.mean(power_spectrum_positive)
+            features['env_flatness'] = float(geometric_mean / (arithmetic_mean + 1e-12))
+        else:
+            features['env_flatness'] = 0.0
+
+
+        # Find peaks 
+        peak_cutoff = 200  # Hz
+        cutoff_idx_h = np.where(env_spectrum['freqs'] <= peak_cutoff)[0][-1] if len(np.where(env_spectrum['freqs'] <= peak_cutoff)[0]) > 0 else len(env_spectrum['freqs'])//2
+        median = np.median(env_spectrum['magnitude'][:cutoff_idx_h])
+        peaks = analyzer.find_spectral_peaks(env_spectrum, num_peaks=10, distance=2, prominence=median, height=median*2)
+        peak_count = len(peaks["peak_indices"])
+        if peak_count > 0:
+            peak_freqs = peaks["peak_freqs"]
+            peak_mags = peaks["peak_magnitudes"]
+
+            total_power = np.sum(peak_mags**2)
+            features["env_peak_power_mean"] = float(np.mean(peak_mags))
+            features["env_peak_power_std"] = float(np.std(peak_mags))
+
+            dom_idx = np.argmax(peak_mags)
+            features["env_dom_rel_peak_power"] = float(peak_mags[dom_idx]**2 / (total_power + 1e-12))
+            features["env_dom_peak_to_band_energy_ratio"] = float(peak_mags[dom_idx]**2 / (np.sum(env_spectrum['magnitude']**2) + 1e-12))
+        else:
+            features["env_peak_power_mean"] = 0
+            features["env_peak_power_std"] = 0
+            features["env_dom_rel_peak_power"] = 0
+            features["env_dom_peak_to_band_energy_ratio"] = 0
+
+        if peak_count > 1:
+            peak_freqs = peaks["peak_freqs"]
+            sorted_peak_freqs = np.sort(peak_freqs)
+            peak_spacing = np.diff(sorted_peak_freqs)
+            features["env_peak_sp_mean"] = float(np.mean(peak_spacing))
+            features["env_peak_sp_std"] = float(np.std(peak_spacing))
+            mean_peak_freq = np.mean(peak_freqs)
+            if mean_peak_freq > 1e-12:
+                features["env_peak_freq_cv"] = float(np.std(peak_freqs)) / mean_peak_freq
+
+            freq_range = peak_freqs[-1] - peak_freqs[0]
+            features["env_peak_density"] = float(peak_count / max(freq_range, 1.0))
+        else:
+            features["env_peak_sp_mean"] = 0
+            features["env_peak_sp_std"] = 0
+            features["env_peak_freq_cv"] = 0
+            features["env_peak_density"] = 0
+
+        return features
+    
+    @staticmethod
+    def hilbert_envelope_cross_features(signal_a: np.ndarray, signal_b: np.ndarray, 
+                                        ch1_name: str = "ch1", ch2_name: str = "ch2") -> Dict[str, float]:
+        features = {}
+
+        carrier_freq = 3330
+        env_conf = EnvelopeConfig(
+            bandpass_low=carrier_freq - 50,
+            bandpass_high=carrier_freq + 50,
+            lowpass_cutoff=200.0,
+            filter_order=4,
+            decimation_factor=5,
+            sampling_rate=10000 # current fs
+        )
+        analyzer = HilbertEnvelopeAnalyzer(env_conf)
+        env_s1 = analyzer.compute_fft_spectrum(signal_a, 'envelope_decimated', nperseg=512, normalize=True)
+        env_s2 = analyzer.compute_fft_spectrum(signal_b, 'envelope_decimated', nperseg=512, normalize=True)
+        # Find peaks 
+        peak_cutoff = 200  # Hz
+        cutoff_idx1 = np.where(env_s1['freqs'] <= peak_cutoff)[0][-1] if len(np.where(env_s1['freqs'] <= peak_cutoff)[0]) > 0 else len(env_s1['freqs'])//2
+        median1 = np.median(env_s1['magnitude'][:cutoff_idx1])
+        peaks1 = analyzer.find_spectral_peaks(env_s1, num_peaks=10, distance=2, prominence=median1, height=median1*2)
+        peak_count1 = len(peaks1["peak_indices"])
+        cutoff_idx2 = np.where(env_s2['freqs'] <= peak_cutoff)[0][-1] if len(np.where(env_s2['freqs'] <= peak_cutoff)[0]) > 0 else len(env_s2['freqs'])//2
+        median2 = np.median(env_s2['magnitude'][:cutoff_idx2])
+        peaks2 = analyzer.find_spectral_peaks(env_s2, num_peaks=10, distance=2, prominence=median2, height=median2*2)
+        peak_count2 = len(peaks2["peak_indices"])
         
-        features['crest_factor'] = peak / (rms + eps)
-        features['form_factor'] = rms / (mean_abs + eps)
+        if peak_count1 > 0 and peak_count2 > 0:
+            # Extract peak information
+            peak_mags1 = peaks1["peak_magnitudes"]
+            peak_mags2 = peaks2["peak_magnitudes"]
+                       
+            features[f"{ch1_name}_{ch2_name}_env_mean_mag_ratio"] = float(np.mean(peak_mags1) / (np.mean(peak_mags2) + 1e-12))
+            
+            # 4. Spectral energy comparison
+            total_energy1 = np.sum(env_s1['magnitude']**2)
+            total_energy2 = np.sum(env_s2['magnitude']**2)
+            features[f"{ch1_name}_{ch2_name}_env_energy_ratio"] = float(total_energy1 / (total_energy2 + 1e-12))
+            
+            # 5. Envelope imbalance indicator
+            energy_imbalance = abs(total_energy1 - total_energy2) / (total_energy1 + total_energy2 + 1e-12)
+            features[f"{ch1_name}_{ch2_name}_env_energy_imbalance"] = float(energy_imbalance)
+            
+        else:
+            # Handle case where one or both channels have no peaks
+            features[f"{ch1_name}_{ch2_name}_env_mean_mag_ratio"] = 1.0
+
+            # Energy comparison still possible even without peaks
+            total_energy1 = np.sum(env_s1['magnitude']**2)
+            total_energy2 = np.sum(env_s2['magnitude']**2)
+            features[f"{ch1_name}_{ch2_name}_env_energy_ratio"] = float(total_energy1 / (total_energy2 + 1e-12))
+            energy_imbalance = abs(total_energy1 - total_energy2) / (total_energy1 + total_energy2 + 1e-12)
+            features[f"{ch1_name}_{ch2_name}_env_energy_imbalance"] = float(energy_imbalance)
         
+        # 6. Direct envelope spectral correlation (always computable)
+        # Compute correlation between the envelope spectra magnitudes
+        min_len = min(len(env_s1['magnitude']), len(env_s2['magnitude']))
+        if min_len > 1:
+            corr_coef = np.corrcoef(env_s1['magnitude'][:min_len], env_s2['magnitude'][:min_len])[0, 1]
+            features[f"{ch1_name}_{ch2_name}_env_spectral_corr"] = float(corr_coef) if not np.isnan(corr_coef) else 0.0
+        else:
+            features[f"{ch1_name}_{ch2_name}_env_spectral_corr"] = 0.0
+        
+        # 7. Envelope time series correlation (if we extract envelopes)
+        envelope1 = analyzer.extract_envelope(signal_a)
+        envelope2 = analyzer.extract_envelope(signal_b)
+        min_env_len = min(len(envelope1), len(envelope2))
+        if min_env_len > 1:     
+            # 8. Envelope RMS ratio
+            rms1 = np.sqrt(np.mean(envelope1**2))
+            rms2 = np.sqrt(np.mean(envelope2**2))
+            features[f"{ch1_name}_{ch2_name}_env_rms_ratio"] = float(rms1 / (rms2 + 1e-12))
+            
+            # 9. Envelope shape factor differences
+            crest1 = np.max(envelope1) / (rms1 + 1e-12)
+            crest2 = np.max(envelope2) / (rms2 + 1e-12)
+            features[f"{ch1_name}_{ch2_name}_env_crest_diff"] = float(abs(crest1 - crest2))
+        else:
+            features[f"{ch1_name}_{ch2_name}_env_rms_ratio"] = 1.0
+            features[f"{ch1_name}_{ch2_name}_env_crest_diff"] = 0.0
+
         return features
 
 class FrequencyDomainFeatures:
@@ -421,7 +588,8 @@ class FeatureExtractor:
         self.config = config
         self.time_domain = TimeDomainFeatures()
         self.frequency_domain = FrequencyDomainFeatures()
-    
+        self.hilbert_envelope = HilbertEnvelopeFeatures()
+
     def extract_features(self, signal: np.ndarray, channel_name: str = "ch") -> Dict[str, float]:
         """
         Extract comprehensive features from a single-channel signal.
@@ -439,15 +607,11 @@ class FeatureExtractor:
         if self.config.time_domain:
             time_features = self.time_domain.basic_statistics(signal)
             features.update({f"{channel_name}_{k}": v for k, v in time_features.items()})
-                   
-        if self.config.statistical_moments:
-            moment_features = self.time_domain.statistical_moments(signal)
-            features.update({f"{channel_name}_{k}": v for k, v in moment_features.items()})
-        
-        if self.config.shape_factors:
-            shape_features = self.time_domain.shape_factors(signal)
-            features.update({f"{channel_name}_{k}": v for k, v in shape_features.items()})
-        
+
+        if self.config.hilbert_envelope:
+            hilbert_features = self.hilbert_envelope.hilbert_envelope_features(signal)
+            features.update({f"{channel_name}_{k}": v for k, v in hilbert_features.items()})
+
         # Frequency domain features
         if self.config.frequency_domain:
             fft_result = self.frequency_domain.fft_features(
@@ -497,9 +661,22 @@ class FeatureExtractor:
             all_features.update(ch_features)
         
         # Cross-channel features
-        if n_channels > 1:
+        if n_channels > 1 and self.config.cross_channel:
             cross_features = self._extract_cross_channel_features(signal, channel_names)
             all_features.update(cross_features)
+
+        if n_channels > 1 and self.config.hilbert_envelope:
+            # Hilbert envelope cross-channel features
+            for i in range(n_channels):
+                for j in range(i + 1, n_channels):
+                    ch1_name = channel_names[i]
+                    ch2_name = channel_names[j]
+                    ch1_signal = signal[:, i]
+                    ch2_signal = signal[:, j]
+                    env_cross_features = self.hilbert_envelope.hilbert_envelope_cross_features(
+                        ch1_signal, ch2_signal, ch1_name, ch2_name
+                    )
+                    all_features.update(env_cross_features)
         
         return all_features
     
