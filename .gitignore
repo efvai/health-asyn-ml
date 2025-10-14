@@ -127,7 +127,6 @@ dmypy.json
 *.dat
 *.csv
 *.tsv
-*.json
 *.parquet
 *.feather
 #*.xlsx
@@ -179,11 +178,6 @@ reports/
 *.tmp
 *.temp
 *~
-
-# IDE and Editor files
-# VSCode
-.vscode/
-*.code-workspace
 
 # PyCharm
 .idea/
