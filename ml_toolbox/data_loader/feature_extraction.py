@@ -38,7 +38,7 @@ class FeatureConfig:
     sampling_rate: float = CURRENT_SAMPLING_RATE  # Default for current sensors (LTR11)
     
     # Time domain features
-    time_domain: bool = True
+    time_domain: bool = False
 
     # Frequency domain features
     frequency_domain: bool = False
