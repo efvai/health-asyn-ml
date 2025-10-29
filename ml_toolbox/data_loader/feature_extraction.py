@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Sensor-specific sampling rates
 CURRENT_SAMPLING_RATE = 10000.0   # LTR11 - Current sensors
 VIBRATION_SAMPLING_RATE = 26041.0 # LTR22 - Vibration sensors
-
+ENV_CARRIER_FREQUENCY = 1670.0 # Hz - Expected carrier frequency for Hilbert envelope analysis
 
 @dataclass
 class FeatureConfig:
@@ -85,12 +85,22 @@ class TimeDomainFeatures:
     def basic_statistics(signal: np.ndarray) -> Dict[str, float]:
         """Extract basic statistical features."""
         features = {}
+        from scipy.signal import medfilt, butter, filtfilt
+        nyquist = 10000 / 2
+        normal_cutoff = 3500 / nyquist
+        b, a = butter(4, normal_cutoff, btype='low', analog=False)
+
+        # Step 1: Apply median filter for despiking
+        despiked = medfilt(signal, kernel_size=7)
         
+        # Step 2: Apply Butterworth lowpass filter with zero-phase filtering
+        signal = filtfilt(b, a, despiked)
+
         # Basic statistics
         features['rms'] = np.sqrt(np.mean(signal**2))
         #features['peak_to_peak'] = np.ptp(signal)
-        #features['skewness'] = stats.skew(signal)
-        #features['kurtosis'] = stats.kurtosis(signal)
+        features['skewness'] = stats.skew(signal)
+        features['kurtosis'] = stats.kurtosis(signal)
         
         # Percentiles
         #features['iqr'] = np.percentile(signal, 75) - np.percentile(signal, 25)
@@ -99,7 +109,7 @@ class TimeDomainFeatures:
         peak = np.max(np.abs(signal))
         mean_abs = np.mean(np.abs(signal))
         #features['crest_factor'] = peak / (features['rms'] + eps)
-        #features['form_factor'] = features['rms'] / (mean_abs + eps)
+        features['form_factor'] = np.sqrt(np.mean(signal**2)) / (mean_abs + eps)
         
         return features
     
@@ -107,14 +117,106 @@ class HilbertEnvelopeFeatures:
     """Extract Hilbert envelope features from signals."""
     
     @staticmethod
-    def hilbert_envelope_features(signal: np.ndarray) -> Dict[str, float]:
-        """Extract features from the Hilbert envelope of the signal."""
+    def _detect_carrier_frequency(signal: np.ndarray, 
+                                  expected_freq: float = 1670.0,
+                                  search_range: float = 200.0,
+                                  sampling_rate: float = 10000.0) -> float:
+        """
+        Detect carrier frequency near expected value using spectral peak detection.
+        
+        Args:
+            signal: Input signal
+            expected_freq: Expected carrier frequency (Hz)
+            search_range: Search range around expected frequency (Hz)
+            sampling_rate: Sampling rate of the signal
+            
+        Returns:
+            Detected carrier frequency
+        """
+        # Create a temporary config for initial spectrum analysis
+        temp_conf = EnvelopeConfig(
+            bandpass_low=expected_freq - search_range,
+            bandpass_high=expected_freq + search_range,
+            lowpass_cutoff=200.0,
+            filter_order=4,
+            decimation_factor=5,
+            sampling_rate=sampling_rate
+        )
+        temp_analyzer = HilbertEnvelopeAnalyzer(temp_conf)
+        
+        # Compute spectrum of original signal
+        spectrum = temp_analyzer.compute_fft_spectrum(signal, 'original', nperseg=2048, normalize=False)
+        
+        # Focus on frequency range around expected carrier
+        freq_mask = (spectrum['freqs'] >= expected_freq - search_range) & \
+                   (spectrum['freqs'] <= expected_freq + search_range)
+        
+        if not np.any(freq_mask):
+            logger.warning(f"No frequencies found in range {expected_freq}±{search_range} Hz, using expected value")
+            return expected_freq
+        
+        # Find peaks in the carrier frequency range
+        carrier_spectrum = {
+            'freqs': spectrum['freqs'][freq_mask],
+            'magnitude': spectrum['magnitude'][freq_mask],
+            'power': spectrum['power'][freq_mask]
+        }
+        
+        # Use median-based peak detection
+        median_mag = np.median(carrier_spectrum['magnitude'])
+        peaks = temp_analyzer.find_spectral_peaks(
+            carrier_spectrum,
+            num_peaks=5,
+            distance=10,
+            prominence=median_mag * 1.5,
+            height=median_mag * 2
+        )
+        
+        if len(peaks['peak_indices']) > 0:
+            # Return the strongest peak frequency
+            strongest_idx = np.argmax(peaks['peak_magnitudes'])
+            detected_freq = peaks['peak_freqs'][strongest_idx]
+            logger.info(f"Detected carrier frequency: {detected_freq:.1f} Hz (expected: {expected_freq:.1f} Hz)")
+            return float(detected_freq)
+        else:
+            logger.warning(f"No carrier peak detected, using expected frequency {expected_freq} Hz")
+            return expected_freq
+    
+    @staticmethod
+    def hilbert_envelope_features(signal: np.ndarray, 
+                                 bandpass_low: Optional[float] = None,
+                                 bandpass_high: Optional[float] = None,
+                                 expected_carrier: float = ENV_CARRIER_FREQUENCY,
+                                 carrier_bandwidth: float = 50.0) -> Dict[str, float]:
+        """
+        Extract features from the Hilbert envelope of the signal.
+        
+        Args:
+            signal: Input signal
+            bandpass_low: Low frequency for bandpass filter (Hz). If None, auto-detect.
+            bandpass_high: High frequency for bandpass filter (Hz). If None, auto-detect.
+            expected_carrier: Expected carrier frequency for auto-detection (Hz)
+            carrier_bandwidth: Bandwidth around carrier (±Hz)
+            
+        Returns:
+            Dictionary of Hilbert envelope features
+        """
         features = {}
         
-        carrier_freq = 3330
+        # Auto-detect carrier frequency if bandpass not specified
+        if bandpass_low is None or bandpass_high is None:
+            carrier_freq = HilbertEnvelopeFeatures._detect_carrier_frequency(
+                signal, 
+                expected_freq=expected_carrier,
+                search_range=200.0,
+                sampling_rate=10000.0
+            )
+            bandpass_low = carrier_freq - carrier_bandwidth
+            bandpass_high = carrier_freq + carrier_bandwidth
+        
         env_conf = EnvelopeConfig(
-            bandpass_low=carrier_freq - 50,
-            bandpass_high=carrier_freq + 50,
+            bandpass_low=bandpass_low,
+            bandpass_high=bandpass_high,
             lowpass_cutoff=200.0,
             filter_order=4,
             decimation_factor=5,
@@ -126,7 +228,7 @@ class HilbertEnvelopeFeatures:
         # Basic envelope statistics
         features['env_rms'] = np.sqrt(np.mean(envelope**2))
         features['env_ptp'] = np.ptp(envelope)
-        features['env_kurt'] = stats.kurtosis(envelope)
+        #features['env_kurt'] = stats.kurtosis(envelope)#erase
         features['env_skew'] = stats.skew(envelope)
         
         # Envelope shape factors
@@ -211,12 +313,12 @@ class HilbertEnvelopeFeatures:
                 features["env_peak_freq_cv"] = float(np.std(peak_freqs)) / mean_peak_freq
 
             freq_range = peak_freqs[-1] - peak_freqs[0]
-            features["env_peak_density"] = float(peak_count / max(freq_range, 1.0))
+            #features["env_peak_density"] = float(peak_count / max(freq_range, 1.0)) #erase
         else:
             features["env_peak_sp_mean"] = 0
             features["env_peak_sp_std"] = 0
             features["env_peak_freq_cv"] = 0
-            features["env_peak_density"] = 0
+            #features["env_peak_density"] = 0 #erase
 
         return features
     
@@ -306,13 +408,44 @@ class HilbertEnvelopeFeatures:
     
     @staticmethod
     def hilbert_envelope_cross_features(signal_a: np.ndarray, signal_b: np.ndarray, 
-                                        ch1_name: str = "ch1", ch2_name: str = "ch2") -> Dict[str, float]:
+                                        ch1_name: str = "ch1", ch2_name: str = "ch2",
+                                        bandpass_low: Optional[float] = None,
+                                        bandpass_high: Optional[float] = None,
+                                        expected_carrier: float = ENV_CARRIER_FREQUENCY,
+                                        carrier_bandwidth: float = 50.0) -> Dict[str, float]:
+        """
+        Extract cross-channel Hilbert envelope features.
+        
+        Args:
+            signal_a: First channel signal
+            signal_b: Second channel signal
+            ch1_name: Name of first channel
+            ch2_name: Name of second channel
+            bandpass_low: Low frequency for bandpass filter (Hz). If None, auto-detect.
+            bandpass_high: High frequency for bandpass filter (Hz). If None, auto-detect.
+            expected_carrier: Expected carrier frequency for auto-detection (Hz)
+            carrier_bandwidth: Bandwidth around carrier (±Hz)
+            
+        Returns:
+            Dictionary of cross-channel envelope features
+        """
         features = {}
 
-        carrier_freq = 3330
+        # Auto-detect carrier frequency if bandpass not specified
+        # Use signal_a for detection (could also average both signals)
+        if bandpass_low is None or bandpass_high is None:
+            carrier_freq = HilbertEnvelopeFeatures._detect_carrier_frequency(
+                signal_a, 
+                expected_freq=expected_carrier,
+                search_range=200.0,
+                sampling_rate=10000.0
+            )
+            bandpass_low = carrier_freq - carrier_bandwidth
+            bandpass_high = carrier_freq + carrier_bandwidth
+        
         env_conf = EnvelopeConfig(
-            bandpass_low=carrier_freq - 50,
-            bandpass_high=carrier_freq + 50,
+            bandpass_low=bandpass_low,
+            bandpass_high=bandpass_high,
             lowpass_cutoff=200.0,
             filter_order=4,
             decimation_factor=5,
@@ -982,8 +1115,19 @@ def extract_categorical_features(metadata_list: List[Dict]) -> Tuple[np.ndarray,
     load_values = []
     for meta in metadata_list:
         load = meta.get('load', 'unknown')
-        # Convert to binary: 1 for under_load, 0 for no_load or unknown
-        load_val = 1 if load == 'under_load' else 0
+        
+        # Check frequency_dir for implicit load condition (e.g., 20hz_4, 20hz_5, 20hz_6)
+        freq_dir = meta.get('frequency_dir', '')
+        import re
+        freq_match = re.search(r'(\d+)hz[_\s](\d+)', freq_dir)
+        
+        # If frequency_dir number > 3, it's under load
+        if freq_match and int(freq_match.group(2)) > 3:
+            load_val = 1
+        else:
+            # Otherwise use the explicit load field
+            load_val = 1 if load == 'under_load' else 0
+        
         load_values.append(load_val)
     
     categorical_features.append(load_values)

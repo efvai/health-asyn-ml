@@ -245,8 +245,11 @@ def evaluate_model_cv(features: np.ndarray, labels: np.ndarray,
         cv_folds: Number of CV folds
         
     Returns:
-        Dictionary with CV results
+        Dictionary with CV results including accuracy, F1, precision, recall, and confusion matrix
     """
+    from sklearn.model_selection import cross_val_predict
+    from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
+    
     print(f"Evaluating model for {frequency}...")
     
     # Create pipeline
@@ -265,9 +268,32 @@ def evaluate_model_cv(features: np.ndarray, labels: np.ndarray,
     cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
     cv_scores = cross_val_score(pipeline, features, labels, cv=cv, scoring='accuracy')
     
+    # Get predictions for all samples using cross-validation
+    cv_predictions = cross_val_predict(pipeline, features, labels, cv=cv)
+    
+    # Calculate additional metrics
+    # Determine if multi-class or binary
+    unique_labels = np.unique(labels)
+    is_multiclass = len(unique_labels) > 2
+    average_method = 'weighted' if is_multiclass else 'binary'
+    
+    # Calculate overall metrics
+    accuracy = accuracy_score(labels, cv_predictions)
+    precision = precision_score(labels, cv_predictions, average=average_method, zero_division=0)
+    recall = recall_score(labels, cv_predictions, average=average_method, zero_division=0)
+    f1 = f1_score(labels, cv_predictions, average=average_method, zero_division=0)
+    
+    # Calculate class-wise metrics (per-class scores)
+    precision_per_class = precision_score(labels, cv_predictions, average=None, zero_division=0)
+    recall_per_class = recall_score(labels, cv_predictions, average=None, zero_division=0)
+    f1_per_class = f1_score(labels, cv_predictions, average=None, zero_division=0)
+    
+    # Confusion matrix
+    conf_matrix = confusion_matrix(labels, cv_predictions)
+    
     # Label distribution
-    unique_labels, label_counts = np.unique(labels, return_counts=True)
-    label_distribution = dict(zip(unique_labels, label_counts))
+    label_counts = np.unique(labels, return_counts=True)
+    label_distribution = dict(zip(label_counts[0], label_counts[1]))
     
     results = {
         'frequency': frequency,
@@ -276,12 +302,22 @@ def evaluate_model_cv(features: np.ndarray, labels: np.ndarray,
         'std_accuracy': cv_scores.std(),
         'best_fold': cv_scores.max(),
         'worst_fold': cv_scores.min(),
+        'accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1,
+        'precision_per_class': precision_per_class,
+        'recall_per_class': recall_per_class,
+        'f1_per_class': f1_per_class,
+        'confusion_matrix': conf_matrix,
         'label_distribution': label_distribution,
         'n_samples': len(labels),
-        'n_features': features.shape[1]
+        'n_features': features.shape[1],
+        'unique_labels': unique_labels.tolist()
     }
     
     print(f"{frequency} - Mean CV Accuracy: {cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
+    print(f"{frequency} - Precision: {precision:.3f}, Recall: {recall:.3f}, F1: {f1:.3f}")
     
     return results
 
