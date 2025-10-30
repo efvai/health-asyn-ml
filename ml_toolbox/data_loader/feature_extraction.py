@@ -15,6 +15,7 @@ from scipy.fft import fft, fftfreq
 from scipy.signal import hilbert
 import warnings
 from .envelope_analyzer import HilbertEnvelopeAnalyzer, EnvelopeConfig
+from scipy.signal import medfilt, butter, filtfilt
 
 # Try to import PCA reduction module
 try:
@@ -49,7 +50,7 @@ class FeatureConfig:
     hilbert_envelope: bool = True
 
     # Cross Channel
-    cross_channel: bool = False  # Compute cross-channel features (e.g., correlation)
+    cross_channel: bool = True  # Compute cross-channel features (e.g., correlation)
     
     # PCA feature reduction
     apply_pca: bool = False  # Apply PCA to reduce dimensionality of time-domain features
@@ -85,7 +86,7 @@ class TimeDomainFeatures:
     def basic_statistics(signal: np.ndarray) -> Dict[str, float]:
         """Extract basic statistical features."""
         features = {}
-        from scipy.signal import medfilt, butter, filtfilt
+        
         nyquist = 10000 / 2
         normal_cutoff = 3500 / nyquist
         b, a = butter(4, normal_cutoff, btype='low', analog=False)
@@ -452,6 +453,17 @@ class HilbertEnvelopeFeatures:
             sampling_rate=10000 # current fs
         )
         analyzer = HilbertEnvelopeAnalyzer(env_conf)
+
+        envelope1 = analyzer.extract_envelope(signal_a)
+        envelope2 = analyzer.extract_envelope(signal_b)
+        #cross correlation of envelopes
+        min_len = min(len(envelope1), len(envelope2))
+        if min_len > 1:
+            corr_coef = np.corrcoef(envelope1[:min_len], envelope2[:min_len])[0, 1]
+            features[f"{ch1_name}_{ch2_name}_env_time_corr"] = float(corr_coef) if not np.isnan(corr_coef) else 0.0
+        else:
+            features[f"{ch1_name}_{ch2_name}_env_time_corr"] = 0.0
+
         env_s1 = analyzer.compute_fft_spectrum(signal_a, 'envelope_decimated', nperseg=512, normalize=True)
         env_s2 = analyzer.compute_fft_spectrum(signal_b, 'envelope_decimated', nperseg=512, normalize=True)
         # Find peaks 
@@ -920,22 +932,36 @@ class FeatureExtractor:
         """Extract cross-channel correlation and coherence features."""
         features = {}
         n_channels = signal.shape[1]
+
+        nyquist = 10000 / 2
+        normal_cutoff = 3500 / nyquist
+        b, a = butter(4, normal_cutoff, btype='low', analog=False)
+
+        
         
         # Cross-correlation features
         for i in range(n_channels):
             for j in range(i + 1, n_channels):
                 ch1_name = channel_names[i]
                 ch2_name = channel_names[j]
-                
+
+                # Step 1: Apply median filter for despiking
+                despiked1 = medfilt(signal[:, i], kernel_size=7)
+                despiked2 = medfilt(signal[:, j], kernel_size=7)
+
+                # Step 2: Apply Butterworth lowpass filter with zero-phase filtering
+                signal[:, i] = filtfilt(b, a, despiked1)
+                signal[:, j] = filtfilt(b, a, despiked2)
+
                 # Correlation coefficient
-                #corr = np.corrcoef(signal[:, i], signal[:, j])[0, 1]
-                #features[f"{ch1_name}_{ch2_name}_correlation"] = corr if not np.isnan(corr) else 0.0
+                corr = np.corrcoef(signal[:, i], signal[:, j])[0, 1]
+                features[f"{ch1_name}_{ch2_name}_correlation"] = corr if not np.isnan(corr) else 0.0
                 
                 # Advanced cross-channel features using PSD analysis
-                cross_psd_features = self._extract_cross_psd_features(
-                    signal[:, i], signal[:, j], ch1_name, ch2_name
-                )
-                features.update(cross_psd_features)
+                #cross_psd_features = self._extract_cross_psd_features(
+                #    signal[:, i], signal[:, j], ch1_name, ch2_name
+                #)
+                #features.update(cross_psd_features)
         
         return features
     
