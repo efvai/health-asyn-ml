@@ -493,6 +493,137 @@ def compare_oob_vs_shap_importance(oob_importance_df: pd.DataFrame,
     return comparison.sort_values('Agreement_Score', ascending=False)
 
 
+def plot_shap_dependence_plots(features: np.ndarray, labels: np.ndarray, 
+                              feature_names: List[str], target_features: List[str],
+                              frequency: str = "", max_samples: int = 500) -> None:
+    """
+    Generate SHAP dependence plots for specified features
+    
+    Args:
+        features: Feature matrix
+        labels: Labels
+        feature_names: List of feature names
+        target_features: List of feature names to plot (e.g., ['current_phase_a_env_thd_power_frac'])
+        frequency: Frequency label for title
+        max_samples: Maximum samples to use for SHAP computation (for efficiency)
+    """
+    from sklearn.model_selection import train_test_split
+    
+    print(f"Generating SHAP dependence plots for {len(target_features)} features...")
+    
+    # Subsample if dataset is large
+    if len(features) > max_samples:
+        X_sample, _, y_sample, _ = train_test_split(
+            features, labels, train_size=max_samples, random_state=42, stratify=labels
+        )
+    else:
+        X_sample = features
+        y_sample = labels
+    
+    # Train model
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_sample)
+    
+    model = RandomForestClassifier(
+        n_estimators=100,
+        random_state=42,
+        max_depth=10,
+        min_samples_split=5,
+        min_samples_leaf=2
+    )
+    model.fit(X_scaled, y_sample)
+    
+    # Compute SHAP values
+    print("Computing SHAP values...")
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_scaled)
+    
+    # Handle different SHAP output formats
+    unique_classes = np.unique(labels)
+    n_classes = len(unique_classes)
+    
+    # Convert feature names to indices
+    feature_indices = []
+    for target_feature in target_features:
+        if target_feature in feature_names:
+            feature_indices.append(feature_names.index(target_feature))
+        else:
+            print(f"Warning: Feature '{target_feature}' not found in feature_names")
+    
+    if not feature_indices:
+        print("No valid features found for dependence plots")
+        return
+    
+    # Generate dependence plots
+    for feature_idx in feature_indices:
+        feature_name = feature_names[feature_idx]
+        print(f"Plotting dependence for: {feature_name}")
+        
+        if isinstance(shap_values, list):  # Multi-class (older format)
+            # Plot for each class
+            n_plots = min(n_classes, 4)  # Max 4 classes to avoid overcrowding
+            fig, axes = plt.subplots(1, n_plots, figsize=(6 * n_plots, 5))
+            if n_plots == 1:
+                axes = [axes]
+            
+            for class_idx in range(n_plots):
+                plt.sca(axes[class_idx])
+                shap.dependence_plot(
+                    feature_idx, 
+                    shap_values[class_idx], 
+                    X_scaled,
+                    feature_names=feature_names,
+                    show=False
+                )
+                class_label = unique_classes[class_idx]
+                class_names_map = ['Healthy', 'Faulty Bearing', 'Misalignment', 'System Misalignment']
+                class_name = class_names_map[int(class_label)] if int(class_label) < len(class_names_map) else f'Class {class_label}'
+                axes[class_idx].set_title(f'{class_name}\n{frequency.upper() if frequency else ""}')
+            
+            plt.tight_layout()
+            plt.show()
+            
+        elif shap_values.ndim == 3:  # Multi-class (newer format): (samples, features, classes)
+            # Plot for each class
+            n_plots = min(n_classes, 4)
+            fig, axes = plt.subplots(1, n_plots, figsize=(6 * n_plots, 5))
+            if n_plots == 1:
+                axes = [axes]
+            
+            for class_idx in range(n_plots):
+                plt.sca(axes[class_idx])
+                shap.dependence_plot(
+                    feature_idx, 
+                    shap_values[:, :, class_idx], 
+                    X_scaled,
+                    feature_names=feature_names,
+                    show=False
+                )
+                class_label = unique_classes[class_idx]
+                class_names_map = ['Healthy', 'Faulty Bearing', 'Misalignment', 'System Misalignment']
+                class_name = class_names_map[int(class_label)] if int(class_label) < len(class_names_map) else f'Class {class_label}'
+                axes[class_idx].set_title(f'{class_name}\n{frequency.upper() if frequency else ""}')
+            
+            plt.tight_layout()
+            plt.show()
+            
+        else:  # Binary case
+            plt.figure(figsize=(8, 6))
+            shap.dependence_plot(
+                feature_idx, 
+                shap_values, 
+                X_scaled,
+                feature_names=feature_names,
+                show=False
+            )
+            title = f'SHAP Dependence: {feature_name}'
+            if frequency:
+                title += f' ({frequency.upper()})'
+            plt.title(title)
+            plt.tight_layout()
+            plt.show()
+
+
 def plot_shap_importance_per_class(class_importance_results: Dict[str, pd.DataFrame], 
                                   top_n: int = 15, frequency: str = ""):
     """
