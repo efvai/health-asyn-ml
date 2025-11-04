@@ -237,7 +237,7 @@ class HilbertEnvelopeFeatures:
         #features['env_crest_factor'] = np.max(envelope) / (features['env_rms'] + eps) # 0.99 corr with skew
         features['env_form_factor'] = features['env_rms'] / (np.mean(np.abs(envelope)) + eps)
 
-        env_spectrum = analyzer.compute_fft_spectrum(signal, 'envelope_decimated', nperseg=512, normalize=True)
+        env_spectrum = analyzer.compute_fft_spectrum(signal, 'envelope_decimated', nperseg=512, normalize=False)
 
         features['env_centroid'] = np.sum(env_spectrum["freqs"] * env_spectrum["magnitude"]) / (np.sum(env_spectrum["magnitude"]) + 1e-12)
         features['env_spread'] = np.sqrt(np.sum((env_spectrum["freqs"] - features['env_centroid'])**2 * env_spectrum["magnitude"]) / (np.sum(env_spectrum["magnitude"]) + 1e-12))
@@ -296,7 +296,7 @@ class HilbertEnvelopeFeatures:
                 "env_harmonic_ratio": 0.0,
                 "env_fundamental_power_ratio": 0.0,
                 "env_harmonic_count": 0.0,
-                "env_harmonic_regularity": 0.0
+                #"env_harmonic_regularity": 0.0
             })
             
             features["env_peak_power_mean"] = 0
@@ -389,13 +389,13 @@ class HilbertEnvelopeFeatures:
             features["env_harmonic_count"] = float(len(found_harmonics))
             
             # Harmonic regularity - measure how well peaks match expected harmonic frequencies
-            if len(found_harmonics) > 1:
-                expected_freqs = np.array([h * f0 for h in found_harmonics])
-                actual_freqs = np.array(harmonic_freqs)
-                freq_errors = np.abs(actual_freqs - expected_freqs) / expected_freqs
-                features["env_harmonic_regularity"] = float(1.0 / (1.0 + np.mean(freq_errors)))
-            else:
-                features["env_harmonic_regularity"] = 1.0 if len(found_harmonics) == 1 else 0.0
+            #if len(found_harmonics) > 1:
+                #expected_freqs = np.array([h * f0 for h in found_harmonics])
+                #actual_freqs = np.array(harmonic_freqs)
+                #freq_errors = np.abs(actual_freqs - expected_freqs) / expected_freqs
+                #features["env_harmonic_regularity"] = float(1.0 / (1.0 + np.mean(freq_errors)))
+            #else:
+                #features["env_harmonic_regularity"] = 1.0 if len(found_harmonics) == 1 else 0.0
                 
         else:
             # No harmonics found
@@ -403,7 +403,7 @@ class HilbertEnvelopeFeatures:
             features["env_harmonic_ratio"] = 0.0
             features["env_fundamental_power_ratio"] = 0.0
             features["env_harmonic_count"] = 0.0
-            features["env_harmonic_regularity"] = 0.0
+            #features["env_harmonic_regularity"] = 0.0
             
         return features
     
@@ -526,7 +526,7 @@ class HilbertEnvelopeFeatures:
             # 9. Envelope shape factor differences
             crest1 = np.max(envelope1) / (rms1 + 1e-12)
             crest2 = np.max(envelope2) / (rms2 + 1e-12)
-            features[f"{ch1_name}_{ch2_name}_env_crest_diff"] = float(abs(crest1 - crest2))
+            features[f"{ch1_name}_{ch2_name}_env_crest_diff"] = float(abs(crest1 - crest2) / ((crest1 + crest2)/2 + 1e-12))
         else:
             features[f"{ch1_name}_{ch2_name}_env_rms_ratio"] = 1.0
             features[f"{ch1_name}_{ch2_name}_env_crest_diff"] = 0.0
