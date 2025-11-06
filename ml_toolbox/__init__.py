@@ -8,9 +8,8 @@ This package provides tools for reading sensor data and managing dataset metadat
 from . import data_io
 
 # Import new dataset management classes from data_loader subpackage
-from .data_loader.dataset_manager import DatasetManager, DatasetInfo
+from .data_loader.dataset_manager import DatasetManager
 from .data_loader.data_loader import DataLoader
-from .data_loader.config import ConfigManager, DatasetConfig, SensorConfig
 
 # Import windowing utilities
 from .data_loader.windowing import (
@@ -45,11 +44,7 @@ __all__ = [
     'data_io',
     'analysis',
     'DatasetManager', 
-    'DatasetInfo',
     'DataLoader',
-    'ConfigManager', 
-    'DatasetConfig', 
-    'SensorConfig',
     'WindowConfig',
     'WindowExtractor',
     'StratifiedWindowExtractor',

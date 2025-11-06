@@ -2,9 +2,8 @@
 Data loading utilities for the ML toolbox.
 """
 
-from .dataset_manager import DatasetManager, DatasetInfo
+from .dataset_manager import DatasetManager
 from .data_loader import DataLoader  
-from .config import ConfigManager, DatasetConfig, SensorConfig
 from .windowing import (
     WindowConfig, WindowExtractor, StratifiedWindowExtractor, 
     SlidingWindowGenerator, WindowAnalyzer, create_windows_for_ml
@@ -30,11 +29,7 @@ except ImportError:
 
 __all__ = [
     'DatasetManager',
-    'DatasetInfo', 
     'DataLoader',
-    'ConfigManager',
-    'DatasetConfig',
-    'SensorConfig',
     'WindowConfig',
     'WindowExtractor',
     'StratifiedWindowExtractor',

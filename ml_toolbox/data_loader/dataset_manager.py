@@ -1,42 +1,17 @@
 """
 Dataset management utilities for motor health monitoring data.
 """
-
-import json
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional
 from ..data_io import read_current, read_vibro
-
-
-@dataclass
-class DatasetInfo:
-    """Dataset metadata structure."""
-    name: str
-    description: str
-    sampling_rate: int
-    duration_seconds: float
-    sensor_types: List[str]
-    conditions: List[str]
-    loads: List[str]
-    frequencies: List[str]
-    total_files: int
-    created_date: str
-
 
 class DatasetManager:
     """Manage motor health monitoring dataset."""
     
     def __init__(self, dataset_path: Path):
         self.dataset_path = Path(dataset_path)
-        self.metadata_path = self.dataset_path / "metadata"
-        self._ensure_metadata_structure()
         self._index = None
-    
-    def _ensure_metadata_structure(self):
-        """Create metadata directory structure if it doesn't exist."""
-        self.metadata_path.mkdir(exist_ok=True)
     
     def scan_dataset(self) -> Dict:
         """Scan dataset directory and create index."""
@@ -116,23 +91,6 @@ class DatasetManager:
             self._index = self.scan_dataset()
         return self._index
     
-    def save_index(self, index: Optional[Dict] = None):
-        """Save dataset index to metadata directory."""
-        if index is None:
-            index = self.get_index()
-        
-        index_file = self.metadata_path / "dataset_index.json"
-        with open(index_file, 'w') as f:
-            json.dump(index, f, indent=2)
-    
-    def load_index(self) -> Dict:
-        """Load dataset index from metadata directory."""
-        index_file = self.metadata_path / "dataset_index.json"
-        if index_file.exists():
-            with open(index_file, 'r') as f:
-                return json.load(f)
-        return self.scan_dataset()
-    
     def load_sample(self, file_info: Dict) -> np.ndarray:
         """Load a single data sample."""
         file_path = Path(file_info["absolute_path"])
@@ -144,33 +102,7 @@ class DatasetManager:
             return read_vibro(file_path)
         else:
             raise ValueError(f"Unknown sensor type: {sensor_type}")
-    
-    def get_dataset_info(self) -> DatasetInfo:
-        """Generate dataset information summary."""
-        index = self.get_index()
-        
-        return DatasetInfo(
-            name="Motor Health Monitoring Dataset",
-            description="Induction motor health monitoring data with current and vibration sensors",
-            sampling_rate=10000,  # This should be configurable
-            duration_seconds=10.0,  # This should be calculated from actual data
-            sensor_types=index["sensor_types"],
-            conditions=index["conditions"],
-            loads=index["loads"],
-            frequencies=index["frequencies"],
-            total_files=len(index["files"]),
-            created_date="2025-09-21"
-        )
-    
-    def save_dataset_info(self, info: Optional[DatasetInfo] = None):
-        """Save dataset information to metadata directory."""
-        if info is None:
-            info = self.get_dataset_info()
-        
-        info_file = self.metadata_path / "dataset_info.json"
-        with open(info_file, 'w') as f:
-            json.dump(asdict(info), f, indent=2)
-    
+  
     def filter_files(self, 
                      condition: Optional[str] = None,
                      load: Optional[str] = None,
