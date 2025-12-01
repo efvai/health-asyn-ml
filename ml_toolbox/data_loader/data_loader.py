@@ -4,7 +4,7 @@ Efficient data loading pipeline.
 
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Sequence, Union
 from concurrent.futures import ThreadPoolExecutor
 import logging
 from .dataset_manager import DatasetManager
@@ -12,6 +12,7 @@ from .dataset_manager import DatasetManager
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+#logger.propagate = False
 
 
 class DataLoader:
@@ -33,26 +34,54 @@ class DataLoader:
                    load: Optional[str] = None, 
                    frequency: Optional[str] = None,
                    sensor_type: Optional[str] = None,
-                   max_workers: int = 4) -> Tuple[List[np.ndarray], List[Dict]]:
+                   max_workers: int = 4,
+                   *,
+                   conditions: Optional[Union[str, Sequence[str]]] = None,
+                   loads: Optional[Union[str, Sequence[str]]] = None,
+                   frequencies: Optional[Union[str, Sequence[str]]] = None,
+                   frequency_dirs: Optional[Union[str, Sequence[str]]] = None,
+                   sensor_types: Optional[Union[str, Sequence[str]]] = None) -> Tuple[List[np.ndarray], List[Dict]]:
         """
         Load batch of data with optional filtering.
         
         Args:
-            condition: Filter by condition (e.g., 'healthy', 'faulty_bearing')
-            load: Filter by load (e.g., 'no_load', 'under_load')
-            frequency: Filter by frequency (e.g., '10hz_1', '20hz_2')
-            sensor_type: Filter by sensor type ('current', 'vibration')
-            max_workers: Number of parallel workers for loading
+            condition: Filter by a single condition (e.g., 'healthy').
+            load: Filter by a single load level (e.g., 'no_load').
+            frequency: Filter by a base frequency (e.g., '10hz').
+            sensor_type: Filter by a single sensor type ('current', 'vibration').
+            max_workers: Number of parallel workers for loading.
+            conditions: One or more conditions to include. Supersedes ``condition`` when provided.
+            loads: One or more load levels to include. Supersedes ``load`` when provided.
+            frequencies: One or more base frequencies to include. Supersedes ``frequency`` when provided.
+            frequency_dirs: One or more specific frequency directories (e.g., '10hz_1').
+            sensor_types: One or more sensor types to include. Supersedes ``sensor_type`` when provided.
             
         Returns:
             Tuple of (data_list, metadata_list)
         """
         
         # Filter files based on criteria
-        filtered_files = self.dataset_manager.filter_files(condition, load, frequency, sensor_type)
+        filtered_files = self.dataset_manager.filter_files(
+            condition=condition,
+            load=load,
+            frequency=frequency,
+            sensor_type=sensor_type,
+            conditions=conditions,
+            loads=loads,
+            frequencies=frequencies,
+            frequency_dirs=frequency_dirs,
+            sensor_types=sensor_types,
+        )
         
         if not filtered_files:
-            logger.warning(f"No files found matching criteria: condition={condition}, load={load}, frequency={frequency}, sensor_type={sensor_type}")
+            logger.warning(
+                "No files found matching criteria: "
+                f"condition={condition or conditions}, "
+                f"load={load or loads}, "
+                f"frequency={frequency or frequencies}, "
+                f"frequency_dir={frequency_dirs}, "
+                f"sensor_type={sensor_type or sensor_types}"
+            )
             return [], []
         
         logger.info(f"Loading {len(filtered_files)} files with {max_workers} workers")

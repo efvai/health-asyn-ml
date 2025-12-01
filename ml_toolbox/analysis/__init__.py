@@ -19,7 +19,6 @@ from .feature_analysis import (
 
 # Import cross-validation analysis utilities
 from .cv_analysis import (
-    evaluate_model_cv,
     plot_cv_scores_by_fold,
     plot_cv_results_comparison,
     create_performance_summary,
@@ -28,6 +27,8 @@ from .cv_analysis import (
     plot_incremental_feature_performance,
     write_incremental_results_to_excel
 )
+
+from .model_evaluation import (evaluate_model_cv, cv_shap)
 
 __all__ = [
     # Feature analysis
@@ -39,14 +40,16 @@ __all__ = [
     'compare_top_features_across_frequencies',
     
     # CV analysis
-    'evaluate_model_cv',
     'plot_cv_scores_by_fold',
     'plot_cv_results_comparison',
     'create_performance_summary',
     'run_comprehensive_frequency_analysis',
     'evaluate_incremental_features_cv',
     'plot_incremental_feature_performance',
-    'write_incremental_results_to_excel'
+    'write_incremental_results_to_excel',
+
+    'evaluate_model_cv',
+    'cv_shap'
 ]
 
 __version__ = "1.0.0"

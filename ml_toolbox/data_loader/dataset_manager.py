@@ -3,7 +3,7 @@ Dataset management utilities for motor health monitoring data.
 """
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence, Union, Set
 from ..data_io import read_current, read_vibro
 
 class DatasetManager:
@@ -107,24 +107,65 @@ class DatasetManager:
                      condition: Optional[str] = None,
                      load: Optional[str] = None,
                      frequency: Optional[str] = None,
-                     sensor_type: Optional[str] = None) -> List[Dict]:
-        """Filter files based on criteria."""
+                     sensor_type: Optional[str] = None,
+                     *,
+                     conditions: Optional[Union[str, Sequence[str]]] = None,
+                     loads: Optional[Union[str, Sequence[str]]] = None,
+                     frequencies: Optional[Union[str, Sequence[str]]] = None,
+                     frequency_dirs: Optional[Union[str, Sequence[str]]] = None,
+                     sensor_types: Optional[Union[str, Sequence[str]]] = None) -> List[Dict]:
+        """Filter files based on one or multiple criteria."""
         index = self.get_index()
         filtered = index["files"]
-        
-        if condition:
-            condition = condition.replace(" ", "_")
-            filtered = [f for f in filtered if f["condition"] == condition]
-        if load:
-            load = load.replace(" ", "_")
-            filtered = [f for f in filtered if f["load"] == load]
-        if frequency:
-            frequency = frequency.replace(" ", "_")
-            filtered = [f for f in filtered if f["frequency"] == frequency]
-        if sensor_type:
-            filtered = [f for f in filtered if f["sensor_type"] == sensor_type]
-            
+
+        condition_values = self._normalize_filter_values(condition, conditions)
+        load_values = self._normalize_filter_values(load, loads)
+        frequency_values = self._normalize_filter_values(frequency, frequencies)
+        frequency_dir_values = self._normalize_filter_values(None, frequency_dirs)
+        sensor_type_values = self._normalize_filter_values(sensor_type, sensor_types, replace_spaces=False, lower=True)
+
+        if condition_values:
+            filtered = [f for f in filtered if f["condition"] in condition_values]
+        if load_values:
+            filtered = [f for f in filtered if f["load"] in load_values]
+        if frequency_values:
+            filtered = [f for f in filtered if f["frequency"] in frequency_values]
+        if frequency_dir_values:
+            filtered = [f for f in filtered if f["frequency_dir"] in frequency_dir_values]
+        if sensor_type_values:
+            filtered = [f for f in filtered if f["sensor_type"].lower() in sensor_type_values]
+
         return filtered
+
+    def _normalize_filter_values(self,
+                                 primary: Optional[Union[str, Sequence[str]]],
+                                 secondary: Optional[Union[str, Sequence[str]]] = None,
+                                 *,
+                                 replace_spaces: bool = True,
+                                 lower: bool = False) -> Optional[Set[str]]:
+        """Normalize filter values into a set for comparison."""
+        values: List[str] = []
+
+        for source in (primary, secondary):
+            if source is None:
+                continue
+            if isinstance(source, str):
+                values.append(source)
+            else:
+                values.extend([item for item in source if item is not None])
+
+        normalized: List[str] = []
+        for value in values:
+            token = value.strip()
+            if not token:
+                continue
+            if replace_spaces:
+                token = token.replace(" ", "_")
+            if lower:
+                token = token.lower()
+            normalized.append(token)
+
+        return set(normalized) if normalized else None
     
     def get_statistics(self) -> Dict:
         """Get dataset statistics."""

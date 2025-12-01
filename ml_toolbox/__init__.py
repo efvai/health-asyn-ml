@@ -14,14 +14,15 @@ from .data_loader.data_loader import DataLoader
 # Import windowing utilities
 from .data_loader.windowing import (
     WindowConfig, WindowExtractor, StratifiedWindowExtractor, 
-    SlidingWindowGenerator, WindowAnalyzer, create_windows_for_ml
+    create_windows_for_ml
 )
 
 # Import feature extraction utilities
 from .data_loader.feature_extraction import (
-    FeatureConfig, FeatureExtractor, TimeDomainFeatures, 
-    FrequencyDomainFeatures, extract_features_for_ml,
-    extract_categorical_features
+    FeatureExtractor, extract_features_for_ml, extract_categorical_features
+)
+from .data_loader.features import (
+    FeatureConfig, TimeDomainFeatures, FrequencyDomainFeatures, HilbertEnvelopeFeatures
 )
 
 from .data_loader.envelope_analyzer import (
@@ -30,6 +31,10 @@ from .data_loader.envelope_analyzer import (
 
 # Import analysis modules
 from . import analysis
+
+# Import signal processing utilities
+from . import signal_processing
+from .signal_processing import compute_fft_spectrum, find_spectral_peaks
 
 # Import key analysis functions for convenience
 from .analysis import (
@@ -43,18 +48,18 @@ from .analysis import (
 __all__ = [
     'data_io',
     'analysis',
+    'signal_processing',
     'DatasetManager', 
     'DataLoader',
     'WindowConfig',
     'WindowExtractor',
     'StratifiedWindowExtractor',
-    'SlidingWindowGenerator', 
-    'WindowAnalyzer',
     'create_windows_for_ml',
     'FeatureConfig',
     'FeatureExtractor',
     'TimeDomainFeatures',
     'FrequencyDomainFeatures',
+    'HilbertEnvelopeFeatures',
     'extract_features_for_ml',
     'extract_categorical_features',
     'evaluate_incremental_features_cv',
@@ -63,7 +68,9 @@ __all__ = [
     'extract_features_for_frequency',
     'run_comprehensive_frequency_analysis',
     'HilbertEnvelopeAnalyzer',
-    'EnvelopeConfig'
+    'EnvelopeConfig',
+    'compute_fft_spectrum',
+    'find_spectral_peaks'
 ]
 
 __version__ = "1.0.0"

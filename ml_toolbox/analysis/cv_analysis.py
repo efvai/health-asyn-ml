@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, List, Tuple, Any, Optional
 from pathlib import Path
+from .model_evaluation import evaluate_model_cv
 
 
 def write_features_to_excel(features: np.ndarray, labels: np.ndarray, 
@@ -233,93 +234,7 @@ def write_cv_results_to_excel(cv_results: Dict[str, Dict], output_path: str) -> 
     print(f"Sheets created: CV_Summary, CV_Scores_Detail, Label_Distribution, Analysis_Info")
 
 
-def evaluate_model_cv(features: np.ndarray, labels: np.ndarray, 
-                     frequency: str, cv_folds: int = 5) -> Dict[str, Any]:
-    """
-    Evaluate model performance using cross-validation
-    
-    Args:
-        features: Feature matrix
-        labels: Labels
-        frequency: Frequency label for reporting
-        cv_folds: Number of CV folds
-        
-    Returns:
-        Dictionary with CV results including accuracy, F1, precision, recall, and confusion matrix
-    """
-    from sklearn.model_selection import cross_val_predict
-    from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
-    
-    print(f"Evaluating model for {frequency}...")
-    
-    # Create pipeline
-    pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('rf', RandomForestClassifier(
-            n_estimators=100,
-            random_state=42,
-            max_depth=10,
-            min_samples_split=5,
-            min_samples_leaf=2
-        ))
-    ])
-    
-    # Cross-validation
-    cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
-    cv_scores = cross_val_score(pipeline, features, labels, cv=cv, scoring='accuracy')
-    
-    # Get predictions for all samples using cross-validation
-    cv_predictions = cross_val_predict(pipeline, features, labels, cv=cv)
-    
-    # Calculate additional metrics
-    # Determine if multi-class or binary
-    unique_labels = np.unique(labels)
-    is_multiclass = len(unique_labels) > 2
-    average_method = 'weighted' if is_multiclass else 'binary'
-    
-    # Calculate overall metrics
-    accuracy = accuracy_score(labels, cv_predictions)
-    precision = precision_score(labels, cv_predictions, average=average_method, zero_division=0)
-    recall = recall_score(labels, cv_predictions, average=average_method, zero_division=0)
-    f1 = f1_score(labels, cv_predictions, average=average_method, zero_division=0)
-    
-    # Calculate class-wise metrics (per-class scores)
-    precision_per_class = precision_score(labels, cv_predictions, average=None, zero_division=0)
-    recall_per_class = recall_score(labels, cv_predictions, average=None, zero_division=0)
-    f1_per_class = f1_score(labels, cv_predictions, average=None, zero_division=0)
-    
-    # Confusion matrix
-    conf_matrix = confusion_matrix(labels, cv_predictions)
-    
-    # Label distribution
-    label_counts = np.unique(labels, return_counts=True)
-    label_distribution = dict(zip(label_counts[0], label_counts[1]))
-    
-    results = {
-        'frequency': frequency,
-        'cv_scores': cv_scores,
-        'mean_accuracy': cv_scores.mean(),
-        'std_accuracy': cv_scores.std(),
-        'best_fold': cv_scores.max(),
-        'worst_fold': cv_scores.min(),
-        'accuracy': accuracy,
-        'precision': precision,
-        'recall': recall,
-        'f1_score': f1,
-        'precision_per_class': precision_per_class,
-        'recall_per_class': recall_per_class,
-        'f1_per_class': f1_per_class,
-        'confusion_matrix': conf_matrix,
-        'label_distribution': label_distribution,
-        'n_samples': len(labels),
-        'n_features': features.shape[1],
-        'unique_labels': unique_labels.tolist()
-    }
-    
-    print(f"{frequency} - Mean CV Accuracy: {cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
-    print(f"{frequency} - Precision: {precision:.3f}, Recall: {recall:.3f}, F1: {f1:.3f}")
-    
-    return results
+# `evaluate_model_cv` has been moved to `ml_toolbox.analysis.model_evaluation`
 
 
 def plot_cv_scores_by_fold(cv_results: Dict[str, Dict]) -> None:
@@ -502,7 +417,14 @@ def run_comprehensive_frequency_analysis(data_loader, frequencies: List[str],
             print(f"Starting CV evaluation for {freq}...")
             
             # Evaluate model with cross-validation
-            cv_result = evaluate_model_cv(features, labels, freq)
+            cv_result = evaluate_model_cv(features, labels)
+            # Attach frequency identifier to the results (backwards-compatible)
+            try:
+                cv_result['frequency'] = freq
+            except Exception:
+                # If result isn't a dict for some reason, wrap it
+                cv_result = {'frequency': freq, 'result': cv_result}
+
             cv_results[freq] = cv_result
             
             print(f"{freq} CV analysis completed")

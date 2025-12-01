@@ -6,13 +6,14 @@ for feature extraction and machine learning applications.
 """
 
 import numpy as np
-from typing import Dict, List, Tuple, Optional, Union, Generator
+from typing import Dict, List, Tuple, Optional, Generator
 from dataclasses import dataclass
-from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
-
+# Prevent messages from being propagated to the root logger (avoids duplicate output
+# in environments that configure logging handlers, e.g. notebooks)
+#logger.propagate = False
 
 @dataclass
 class WindowConfig:
@@ -197,127 +198,6 @@ class StratifiedWindowExtractor(WindowExtractor):
             return np.array([]), []
         
         return np.array(balanced_windows), balanced_metadata
-
-
-class SlidingWindowGenerator:
-    """Generator for memory-efficient sliding window processing."""
-    
-    def __init__(self, config: WindowConfig):
-        self.config = config
-    
-    def generate_windows(self, 
-                        data: np.ndarray, 
-                        metadata: Optional[Dict] = None) -> Generator[Tuple[np.ndarray, Dict], None, None]:
-        """
-        Generate windows one at a time for memory efficiency.
-        
-        Args:
-            data: Input data array with shape (samples, channels)
-            metadata: Optional metadata dictionary
-            
-        Yields:
-            Tuple of (window, window_metadata)
-        """
-        if len(data.shape) != 2:
-            raise ValueError("Input data must be 2D (samples, channels)")
-        
-        n_samples, n_channels = data.shape
-        start_positions = range(0, n_samples - self.config.window_size + 1, self.config.step_size)
-        
-        for i, start_pos in enumerate(start_positions):
-            end_pos = start_pos + self.config.window_size
-            window = data[start_pos:end_pos, :]
-            
-            if window.shape[0] >= self.config.min_window_size:
-                win_meta = {
-                    'window_id': i,
-                    'start_sample': start_pos,
-                    'end_sample': end_pos,
-                    'window_size': window.shape[0],
-                    'n_channels': n_channels
-                }
-                
-                if metadata:
-                    win_meta.update(metadata)
-                
-                yield window, win_meta
-
-
-class WindowAnalyzer:
-    """Analyze windowing characteristics and statistics."""
-    
-    @staticmethod
-    def analyze_windowing(data_length: int, config: WindowConfig) -> Dict:
-        """
-        Analyze windowing parameters for given data length.
-        
-        Args:
-            data_length: Length of the input data
-            config: Window configuration
-            
-        Returns:
-            Dictionary with windowing analysis
-        """
-        if data_length < config.window_size:
-            return {
-                'feasible': False,
-                'reason': f'Data length ({data_length}) < window size ({config.window_size})',
-                'n_windows': 0,
-                'coverage_ratio': 0.0
-            }
-        
-        n_windows = (data_length - config.window_size) // config.step_size + 1
-        last_window_start = (n_windows - 1) * config.step_size
-        last_window_end = last_window_start + config.window_size
-        coverage_ratio = last_window_end / data_length
-        
-        overlap_samples = config.window_size - config.step_size
-        overlap_ratio = overlap_samples / config.window_size if config.window_size > 0 else 0
-        
-        return {
-            'feasible': True,
-            'n_windows': n_windows,
-            'coverage_ratio': coverage_ratio,
-            'overlap_samples': overlap_samples,
-            'overlap_ratio': overlap_ratio,
-            'unused_samples': data_length - last_window_end,
-            'total_samples_in_windows': n_windows * config.window_size,
-            'data_expansion_ratio': (n_windows * config.window_size) / data_length
-        }
-    
-    @staticmethod
-    def suggest_window_config(data_length: int, 
-                            target_windows: int, 
-                            overlap_ratio: float = 0.5) -> WindowConfig:
-        """
-        Suggest window configuration for target number of windows.
-        
-        Args:
-            data_length: Length of the input data
-            target_windows: Desired number of windows
-            overlap_ratio: Desired overlap ratio
-            
-        Returns:
-            Suggested WindowConfig
-        """
-        # Calculate window size to achieve target number of windows
-        # n_windows = (data_length - window_size) / step_size + 1
-        # step_size = window_size * (1 - overlap_ratio)
-        # Solving for window_size:
-        
-        step_ratio = 1 - overlap_ratio
-        window_size = int((data_length + target_windows - 1) / (target_windows * step_ratio + (1 - step_ratio)))
-        
-        # Ensure reasonable bounds
-        window_size = max(window_size, 32)  # Minimum 32 samples
-        window_size = min(window_size, data_length // 2)  # Maximum half the data
-        
-        return WindowConfig(
-            window_size=window_size,
-            step_size=int(window_size * step_ratio),
-            overlap_ratio=overlap_ratio
-        )
-
 
 def create_windows_for_ml(data_list: List[np.ndarray], 
                          metadata_list: List[Dict],
