@@ -13,13 +13,14 @@ try:
     from .time_domain import TimeDomainFeatures
     from .frequency_domain import FrequencyDomainFeatures
     from .envelope import HilbertEnvelopeFeatures
-    from .base import FeatureConfig
+    from .base import FeatureConfig, FeatureFamilyConfig
     
     __all__ = [
         'TimeDomainFeatures',
         'FrequencyDomainFeatures', 
         'HilbertEnvelopeFeatures',
-        'FeatureConfig'
+        'FeatureConfig',
+        'FeatureFamilyConfig'
     ]
 except ImportError as e:
     # Handle potential import errors gracefully

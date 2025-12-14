@@ -51,10 +51,12 @@ def extract_features_for_frequency(data_loader, frequency: str, load: str = "no 
     
     # Create windows
     windows, labels, win_metadata = create_windows_for_ml(
-        current_data, current_metadata,
+        current_data,
+        current_metadata,
         window_size=window_size,
         overlap_ratio=overlap_ratio,
-        max_windows_per_class=max_windows_per_class
+        max_windows_per_class=max_windows_per_class,
+        random_state=42
     )
     
     print(f"Created {len(windows)} windows for {frequency}")

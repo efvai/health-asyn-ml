@@ -380,8 +380,7 @@ def run_comprehensive_frequency_analysis(data_loader, frequencies: List[str],
         window_length: Window length for analysis
         window_overlap: Window overlap ratio
         export_to_excel: Whether to export CV results to Excel files
-        output_dir: Directory to save Excel files
-        
+        output_dir: Directory to save Excel files        
     Returns:
         Dictionary of CV results by frequency
     """

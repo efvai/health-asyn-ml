@@ -9,13 +9,18 @@ This module now uses modular feature extraction classes for better organization 
 """
 
 import numpy as np
+from itertools import combinations
 from typing import Dict, List, Optional, Union, Callable, Tuple
 import logging
 
 
 # Import modular feature classes
-from .features import TimeDomainFeatures, FrequencyDomainFeatures, HilbertEnvelopeFeatures, FeatureConfig
-from .features.base import CURRENT_SAMPLING_RATE, VIBRATION_SAMPLING_RATE
+from .features import (
+    TimeDomainFeatures,
+    FrequencyDomainFeatures,
+    HilbertEnvelopeFeatures,
+    FeatureConfig,
+)
 
 logger = logging.getLogger(__name__)
     
@@ -47,13 +52,24 @@ class FeatureExtractor:
             features.update({f"{channel_name}_{k}": v for k, v in time_features.items()})
 
         if self.config.hilbert_envelope:
-            hilbert_features = self.hilbert_envelope.hilbert_envelope_features(signal)
+            hilbert_params = self.config.get_params("hilbert_envelope")
+            allowed_keys = {"bandpass_low", "bandpass_high", "expected_carrier", "carrier_bandwidth"}
+            hilbert_kwargs = {
+                key: hilbert_params[key] for key in allowed_keys if key in hilbert_params
+            }
+            hilbert_features = self.hilbert_envelope.hilbert_envelope_features(
+                signal,
+                **hilbert_kwargs
+            )
             features.update({f"{channel_name}_{k}": v for k, v in hilbert_features.items()})
 
         # Frequency domain features
         if self.config.frequency_domain:
+            freq_params = self.config.get_params("frequency_domain")
+            sampling_rate = freq_params.get("sampling_rate", self.config.sampling_rate)
+            window_type = freq_params.get("window_type", self.config.window_type)
             fft_result = self.frequency_domain.fft_features(
-                signal, self.config.sampling_rate, self.config.window_type
+                signal, sampling_rate, window_type
             )
             fft_features, magnitude, freqs = fft_result
             features.update({f"{channel_name}_{k}": v for k, v in fft_features.items()})
@@ -82,37 +98,64 @@ class FeatureExtractor:
         
         all_features = {}
         
-        # Extract features for each channel
+        # Extract features for requested channels
+        name_to_index = {name: idx for idx, name in enumerate(channel_names)}
+        selected_names = self.config.resolve_channel_scope(channel_names)
+        channel_indices: List[int] = [
+            name_to_index[name] for name in selected_names if name in name_to_index
+        ]
 
-        # Get only first channel of current (TEMP)
-        only_one_phase = ["ph_a"]
+        if not channel_indices:
+            channel_indices = list(range(n_channels))
+            selected_names = [channel_names[idx] for idx in channel_indices]
 
-        for ch_idx, ch_name in enumerate(only_one_phase):
-            ch_signal = signal[:, ch_idx]
+        for idx in channel_indices:
+            ch_name = channel_names[idx]
+            ch_signal = signal[:, idx]
             ch_features = self.extract_features(ch_signal, ch_name)
             all_features.update(ch_features)
         
         # Cross-channel features: iterate channel pairs once and call
         # enabled cross-channel extractors conditionally to avoid repetition.
-        if n_channels > 1:
-            for i in range(n_channels):
-                for j in range(i + 1, n_channels):
-                    ch1_name = channel_names[i]
-                    ch2_name = channel_names[j]
-                    ch1_signal = signal[:, i]
-                    ch2_signal = signal[:, j]
+        if self.config.cross_channel and len(channel_indices) > 1:
+            cross_params = self.config.get_params("cross_channel")
+            requested_pairs = cross_params.get("pairs") if isinstance(cross_params, dict) else None
 
-                    if self.config.cross_channel:
-                        if self.config.time_domain:
-                            cc_feats = self.time_domain.cross_correlation_features(
-                                ch1_signal, ch2_signal, ch1_name, ch2_name
-                            )
-                        all_features.update(cc_feats)
-                        if self.config.hilbert_envelope:
-                            env_cross_features = self.hilbert_envelope.hilbert_envelope_cross_features(
-                                ch1_signal, ch2_signal, ch1_name, ch2_name
-                            )
-                            all_features.update(env_cross_features)
+            cross_time_enabled = True
+            cross_env_enabled = True
+
+            if isinstance(cross_params, dict):
+                cross_time_enabled = cross_params.get("time_domain", self.config.time_domain)
+                cross_env_enabled = cross_params.get(
+                    "hilbert_envelope", self.config.hilbert_envelope
+                )
+
+            pair_indices = self._resolve_channel_pairs(
+                requested_pairs,
+                channel_indices,
+                channel_names,
+            )
+
+            for i_idx, j_idx in pair_indices:
+                ch1_name = channel_names[i_idx]
+                ch2_name = channel_names[j_idx]
+                ch1_signal = signal[:, i_idx]
+                ch2_signal = signal[:, j_idx]
+
+                if cross_time_enabled and self.config.time_domain:
+                    cc_feats = self.time_domain.cross_correlation_features(
+                        ch1_signal, ch2_signal, ch1_name, ch2_name
+                    )
+                    all_features.update(cc_feats)
+
+                if cross_env_enabled and self.config.hilbert_envelope:
+                    env_cross_features = self.hilbert_envelope.hilbert_envelope_cross_features(
+                        ch1_signal,
+                        ch2_signal,
+                        ch1_name,
+                        ch2_name,
+                    )
+                    all_features.update(env_cross_features)
         
         return all_features
     
@@ -166,6 +209,52 @@ class FeatureExtractor:
             feature_matrix[i, :] = feature_values
             
         return feature_matrix, feature_names
+
+    @staticmethod
+    def _resolve_channel_pairs(
+        requested_pairs,
+        default_indices: List[int],
+        channel_names: List[str],
+    ) -> List[Tuple[int, int]]:
+        """Resolve channel pair definitions to index tuples."""
+
+        if not requested_pairs:
+            return list(combinations(default_indices, 2))
+
+        name_to_index = {name: idx for idx, name in enumerate(channel_names)}
+        resolved: List[Tuple[int, int]] = []
+        seen = set()
+
+        for pair in requested_pairs:
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                continue
+            first, second = pair
+
+            if isinstance(first, str):
+                idx_a = name_to_index.get(first)
+            elif isinstance(first, int):
+                idx_a = first
+            else:
+                idx_a = None
+
+            if isinstance(second, str):
+                idx_b = name_to_index.get(second)
+            elif isinstance(second, int):
+                idx_b = second
+            else:
+                idx_b = None
+
+            if idx_a is None or idx_b is None or idx_a == idx_b:
+                continue
+
+            pair_key: Tuple[int, int] = (min(idx_a, idx_b), max(idx_a, idx_b))
+            if pair_key in seen:
+                continue
+
+            seen.add(pair_key)
+            resolved.append(pair_key)
+
+        return resolved if resolved else list(combinations(default_indices, 2))
 
 
 def extract_categorical_features(metadata_list: List[Dict]) -> Tuple[np.ndarray, List[str]]:
@@ -259,7 +348,10 @@ def extract_features_for_ml(windows: np.ndarray,
         Tuple of (feature_matrix, feature_names, pca_reducer_if_used)
     """
     if feature_config is None:
-        feature_config = FeatureConfig()
+        feature_config = FeatureConfig.for_sensor(sensor_type)
+    else:
+        feature_config = feature_config.copy()
+        feature_config.apply_sensor_profile(sensor_type, override=False)
     
     # Set channel names based on sensor type
     if sensor_type == "current":

@@ -115,3 +115,8 @@ class DataLoader:
             2: "misalignment",
             3: "system_misalignment"
         }
+
+    def get_condition_map(self) -> Dict[str, int]:
+        """Get mapping from condition names to numerical labels."""
+        conditions = self.dataset_manager.get_index().get("conditions", [])
+        return {condition: idx for idx, condition in enumerate(conditions)}

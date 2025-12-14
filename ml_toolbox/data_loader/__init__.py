@@ -12,7 +12,8 @@ from .feature_extraction import (
     FeatureExtractor, extract_features_for_ml
 )
 from .features import (
-    FeatureConfig, TimeDomainFeatures, FrequencyDomainFeatures, HilbertEnvelopeFeatures
+    FeatureConfig, FeatureFamilyConfig,
+    TimeDomainFeatures, FrequencyDomainFeatures, HilbertEnvelopeFeatures
 )
 from .features.base import CURRENT_SAMPLING_RATE, VIBRATION_SAMPLING_RATE
 
@@ -32,6 +33,7 @@ __all__ = [
     'TimeDomainFeatures',
     'FrequencyDomainFeatures',
     'HilbertEnvelopeFeatures',
+    'FeatureFamilyConfig',
     'extract_features_for_ml',
     'CURRENT_SAMPLING_RATE',
     'VIBRATION_SAMPLING_RATE',
