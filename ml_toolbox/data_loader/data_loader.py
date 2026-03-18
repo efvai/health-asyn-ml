@@ -94,12 +94,3 @@ class DataLoader:
         logger.info(f"Successfully loaded {len(data_list)} files")
         return data_list, metadata_list
     
-    def get_label_mapping(self) -> Dict[int, str]:
-        """Get mapping from numerical labels to class names based on the index."""
-        classes = self.dataset_manager.get_index().get("classes", [])
-        return {idx: cls for idx, cls in enumerate(classes)}
-
-    def get_condition_map(self) -> Dict[str, int]:
-        """Get mapping from class names to numerical labels."""
-        classes = self.dataset_manager.get_index().get("classes", [])
-        return {cls: idx for idx, cls in enumerate(classes)}

@@ -345,7 +345,7 @@ def extract_features_for_ml(windows: np.ndarray,
         metadata_list: Optional list of metadata dicts for categorical features
         
     Returns:
-        Tuple of (feature_matrix, feature_names, pca_reducer_if_used)
+        Tuple of (feature_matrix, feature_names)
     """
     if feature_config is None:
         feature_config = FeatureConfig.for_sensor(sensor_type)

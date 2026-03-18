@@ -55,8 +55,7 @@ def extract_features_for_frequency(data_loader, frequency: str, load: str = "no 
         current_metadata,
         window_size=window_size,
         overlap_ratio=overlap_ratio,
-        max_windows_per_class=max_windows_per_class,
-        random_state=42
+        max_windows_per_class=max_windows_per_class
     )
     
     print(f"Created {len(windows)} windows for {frequency}")
