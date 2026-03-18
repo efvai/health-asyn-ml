@@ -6,7 +6,7 @@ import logging
 import numbers
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Union, Set, Tuple, Any, Iterable
+from typing import Dict, List, Optional, Sequence, Union, Set, Tuple, Any, Iterable, cast
 from ..data_io import read_current, read_vibro
 
 logger = logging.getLogger(__name__)
@@ -39,14 +39,21 @@ class DatasetManager:
         }
 
         for sample_dir in self._iter_sample_dirs():
-            ok, errors, meta = self.validate_sample_dir(sample_dir, return_meta=True)
+            result = cast(
+                Tuple[bool, List[str], Optional[Dict[str, Any]]],
+                self.validate_sample_dir(sample_dir, return_meta=True),
+            )
+            ok, errors, meta = result
             if not ok:
                 logger.warning("Skipping sample %s: %s", sample_dir.name, "; ".join(errors))
                 continue
+            if meta is None:
+                logger.warning("Skipping sample %s: meta.json parsing produced no metadata", sample_dir.name)
+                continue
 
-            class_label = self._normalize_class(meta.get("class"))
-            load_value = self._normalize_numeric(meta.get("load"))
-            electrical_freq = self._normalize_numeric(meta.get("electrical_frequency_hz"))
+            class_label = meta.get("class")
+            load_value = meta.get("load")
+            electrical_freq = meta.get("electrical_frequency_hz")
 
             if class_label:
                 dataset_index["classes"].add(class_label)
@@ -79,9 +86,9 @@ class DatasetManager:
                     "class": class_label,
                     "load": load_value,
                     "electrical_frequency_hz": electrical_freq,
-                    "pwm_frequency_hz": self._normalize_numeric(meta.get("pwm_frequency_hz")),
-                    "sample_rate_current_hz": self._normalize_numeric(meta.get("sample_rate_current_hz")),
-                    "sample_rate_vibro_hz": self._normalize_numeric(meta.get("sample_rate_vibro_hz")),
+                    "pwm_frequency_hz": meta.get("pwm_frequency_hz"),
+                    "sample_rate_current_hz": meta.get("sample_rate_current_hz"),
+                    "sample_rate_vibro_hz": meta.get("sample_rate_vibro_hz"),
                     "sensor_type": sensor_type,
                     "filename": file_path.name,
                     "meta": meta,
@@ -126,101 +133,119 @@ class DatasetManager:
         else:
             raise ValueError(f"Unknown sensor type: {sensor_type}")
   
-    def filter_files(self, 
-                     condition: Optional[str] = None,
-                     load: Optional[Union[str, float, int]] = None,
-                     frequency: Optional[Union[str, float, int]] = None,
-                     sensor_type: Optional[str] = None,
+    def filter_files(self,
                      *,
-                     conditions: Optional[Union[str, Sequence[str]]] = None,
-                     loads: Optional[Union[Union[str, float, int], Sequence[Union[str, float, int]]]] = None,
-                     frequencies: Optional[Union[Union[str, float, int], Sequence[Union[str, float, int]]]] = None,
-                     frequency_dirs: Optional[Union[str, Sequence[str]]] = None,
-                     sensor_types: Optional[Union[str, Sequence[str]]] = None,
                      classes: Optional[Union[str, Sequence[str]]] = None,
+                     loads: Optional[Union[float, int, Sequence[Union[float, int]]]] = None,
+                     frequencies: Optional[Union[float, int, Sequence[Union[float, int]]]] = None,
+                     sensor_types: Optional[Union[str, Sequence[str]]] = None,
                      sample_ids: Optional[Union[str, Sequence[str]]] = None) -> List[Dict]:
-        """Filter files based on one or multiple criteria."""
+        """Filter files using strict, exact-match criteria.
+
+        Inputs are validated against index values and invalid entries raise ValueError.
+        """
         index = self.get_index()
         filtered = index["files"]
 
-        class_values = self._normalize_filter_values(
-            condition or classes,
-            conditions,
-            replace_spaces=True,
-            lower=True,
-        )
-        load_values = self._normalize_numeric_filter_values(load, loads)
-        frequency_values = self._normalize_numeric_filter_values(frequency, frequencies)
-        sensor_type_values = self._normalize_filter_values(sensor_type, sensor_types, replace_spaces=False, lower=True)
-        sample_id_values = self._normalize_filter_values(None, sample_ids, replace_spaces=False, lower=False)
+        class_values: Optional[Set[str]] = None
+        if classes is not None:
+            if isinstance(classes, str):
+                class_values = {classes}
+            elif isinstance(classes, Sequence):
+                class_values = set(classes)
+            else:
+                raise TypeError("classes must be a string or a sequence of strings")
+            if any(not isinstance(value, str) for value in class_values):
+                raise TypeError("classes must be a string or a sequence of strings")
+            available_classes = set(index["classes"])
+            unknown = sorted(class_values - available_classes)
+            if unknown:
+                raise ValueError(f"Unknown classes: {unknown}. Available classes: {sorted(available_classes)}")
 
-        if class_values:
+        load_values: Optional[Set[float]] = None
+        if loads is not None:
+            if isinstance(loads, numbers.Real) and not isinstance(loads, bool):
+                load_values = {float(loads)}
+            elif isinstance(loads, Sequence):
+                load_values = set()
+                for value in loads:
+                    if not isinstance(value, numbers.Real) or isinstance(value, bool):
+                        raise TypeError("loads must be numeric or a sequence of numeric values")
+                    load_values.add(float(value))
+            else:
+                raise TypeError("loads must be numeric or a sequence of numeric values")
+
+            available_loads = {float(v) for v in index["loads"]}
+            unknown = sorted(load_values - available_loads)
+            if unknown:
+                raise ValueError(f"Unknown loads: {unknown}. Available loads: {sorted(available_loads)}")
+
+        frequency_values: Optional[Set[float]] = None
+        if frequencies is not None:
+            if isinstance(frequencies, numbers.Real) and not isinstance(frequencies, bool):
+                frequency_values = {float(frequencies)}
+            elif isinstance(frequencies, Sequence):
+                frequency_values = set()
+                for value in frequencies:
+                    if not isinstance(value, numbers.Real) or isinstance(value, bool):
+                        raise TypeError("frequencies must be numeric or a sequence of numeric values")
+                    frequency_values.add(float(value))
+            else:
+                raise TypeError("frequencies must be numeric or a sequence of numeric values")
+
+            available_frequencies = {float(v) for v in index["electrical_frequencies_hz"]}
+            unknown = sorted(frequency_values - available_frequencies)
+            if unknown:
+                raise ValueError(
+                    f"Unknown frequencies: {unknown}. Available frequencies: {sorted(available_frequencies)}"
+                )
+
+        sensor_type_values: Optional[Set[str]] = None
+        if sensor_types is not None:
+            if isinstance(sensor_types, str):
+                sensor_type_values = {sensor_types}
+            elif isinstance(sensor_types, Sequence):
+                sensor_type_values = set(sensor_types)
+            else:
+                raise TypeError("sensor_types must be a string or a sequence of strings")
+            if any(not isinstance(value, str) for value in sensor_type_values):
+                raise TypeError("sensor_types must be a string or a sequence of strings")
+            available_sensor_types = set(index["sensor_types"])
+            unknown = sorted(sensor_type_values - available_sensor_types)
+            if unknown:
+                raise ValueError(
+                    f"Unknown sensor_types: {unknown}. Available sensor_types: {sorted(available_sensor_types)}"
+                )
+
+        sample_id_values: Optional[Set[str]] = None
+        if sample_ids is not None:
+            if isinstance(sample_ids, str):
+                sample_id_values = {sample_ids}
+            elif isinstance(sample_ids, Sequence):
+                sample_id_values = set(sample_ids)
+            else:
+                raise TypeError("sample_ids must be a string or a sequence of strings")
+            if any(not isinstance(value, str) for value in sample_id_values):
+                raise TypeError("sample_ids must be a string or a sequence of strings")
+            available_sample_ids = {f.get("sample_id") for f in index["files"]}
+            unknown = sorted(sample_id_values - available_sample_ids)
+            if unknown:
+                raise ValueError(
+                    f"Unknown sample_ids: {unknown}. Available sample_ids: {sorted(available_sample_ids)}"
+                )
+
+        if class_values is not None:
             filtered = [f for f in filtered if f.get("class") in class_values]
-        if load_values:
-            filtered = [f for f in filtered if f.get("load") in load_values]
-        if frequency_values:
-            filtered = [f for f in filtered if f.get("electrical_frequency_hz") in frequency_values]
-        if frequency_dirs:
-            logger.debug("frequency_dirs filter ignored in new dataset layout")
-        if sensor_type_values:
-            filtered = [f for f in filtered if f.get("sensor_type", "").lower() in sensor_type_values]
-        if sample_id_values:
+        if load_values is not None:
+            filtered = [f for f in filtered if float(f.get("load")) in load_values]
+        if frequency_values is not None:
+            filtered = [f for f in filtered if float(f.get("electrical_frequency_hz")) in frequency_values]
+        if sensor_type_values is not None:
+            filtered = [f for f in filtered if f.get("sensor_type") in sensor_type_values]
+        if sample_id_values is not None:
             filtered = [f for f in filtered if f.get("sample_id") in sample_id_values]
 
         return filtered
-
-    def _normalize_filter_values(self,
-                                 primary: Optional[Union[str, Sequence[str]]],
-                                 secondary: Optional[Union[str, Sequence[str]]] = None,
-                                 *,
-                                 replace_spaces: bool = True,
-                                 lower: bool = False) -> Optional[Set[str]]:
-        """Normalize string filter values into a set for comparison."""
-        values: List[str] = []
-
-        for source in (primary, secondary):
-            if source is None:
-                continue
-            if isinstance(source, str):
-                values.append(source)
-            else:
-                values.extend([item for item in source if item is not None])
-
-        normalized: List[str] = []
-        for value in values:
-            token = str(value).strip()
-            if not token:
-                continue
-            if replace_spaces:
-                token = token.replace(" ", "_")
-            if lower:
-                token = token.lower()
-            normalized.append(token)
-
-        return set(normalized) if normalized else None
-
-    def _normalize_numeric_filter_values(self,
-                                         primary: Optional[Union[str, float, int, Sequence[Union[str, float, int]]]],
-                                         secondary: Optional[Union[str, float, int, Sequence[Union[str, float, int]]]] = None) -> Optional[Set[float]]:
-        """Normalize numeric filter values into a set of floats."""
-        values: List[Union[str, float, int]] = []
-
-        for source in (primary, secondary):
-            if source is None:
-                continue
-            if isinstance(source, (str, float, int)) and not isinstance(source, bool):
-                values.append(source)
-            elif isinstance(source, Sequence):
-                values.extend([item for item in source if item is not None])
-
-        normalized: List[float] = []
-        for value in values:
-            try:
-                normalized.append(float(value))
-            except (TypeError, ValueError):
-                continue
-
-        return set(normalized) if normalized else None
     
     def get_statistics(self) -> Dict:
         """Get dataset statistics."""
@@ -309,20 +334,3 @@ class DatasetManager:
             if entry.is_dir():
                 yield entry
 
-    @staticmethod
-    def _normalize_class(value: Any) -> Optional[str]:
-        if value is None:
-            return None
-        text = str(value).strip()
-        if not text:
-            return None
-        return text.replace(" ", "_").lower()
-
-    @staticmethod
-    def _normalize_numeric(value: Any) -> Optional[float]:
-        if value is None or isinstance(value, bool):
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None

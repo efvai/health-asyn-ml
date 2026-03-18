@@ -29,33 +29,23 @@ class DataLoader:
             self._index = self.dataset_manager.get_index()
         return self._index
     
-    def load_batch(self, 
-                   condition: Optional[str] = None,
-                   load: Optional[Union[str, float, int]] = None, 
-                   frequency: Optional[Union[str, float, int]] = None,
-                   sensor_type: Optional[str] = None,
+    def load_batch(self,
                    max_workers: int = 4,
                    *,
-                   conditions: Optional[Union[str, Sequence[str]]] = None,
-                   loads: Optional[Union[Union[str, float, int], Sequence[Union[str, float, int]]]] = None,
-                   frequencies: Optional[Union[Union[str, float, int], Sequence[Union[str, float, int]]]] = None,
-                   frequency_dirs: Optional[Union[str, Sequence[str]]] = None,
+                   classes: Optional[Union[str, Sequence[str]]] = None,
+                   loads: Optional[Union[float, int, Sequence[Union[float, int]]]] = None,
+                   frequencies: Optional[Union[float, int, Sequence[Union[float, int]]]] = None,
                    sensor_types: Optional[Union[str, Sequence[str]]] = None,
                    sample_ids: Optional[Union[str, Sequence[str]]] = None) -> Tuple[List[np.ndarray], List[Dict]]:
         """
         Load batch of data with optional filtering.
         
         Args:
-            condition: Filter by class label (e.g., 'healthy').
-            load: Filter by numeric load value.
-            frequency: Filter by electrical frequency in Hz.
-            sensor_type: Filter by a single sensor type ('current', 'vibration').
             max_workers: Number of parallel workers for loading.
-            conditions: One or more class labels to include. Supersedes ``condition`` when provided.
-            loads: One or more load values to include. Supersedes ``load`` when provided.
-            frequencies: One or more electrical frequencies to include. Supersedes ``frequency`` when provided.
-            frequency_dirs: Ignored (kept for backward compatibility).
-            sensor_types: One or more sensor types to include. Supersedes ``sensor_type`` when provided.
+            classes: One or more class labels to include.
+            loads: One or more numeric load values to include.
+            frequencies: One or more electrical frequencies (Hz) to include.
+            sensor_types: One or more sensor types to include.
             sample_ids: Optional sample directory names to include (e.g., '0001').
             
         Returns:
@@ -64,14 +54,9 @@ class DataLoader:
         
         # Filter files based on criteria
         filtered_files = self.dataset_manager.filter_files(
-            condition=condition,
-            load=load,
-            frequency=frequency,
-            sensor_type=sensor_type,
-            conditions=conditions,
+            classes=classes,
             loads=loads,
             frequencies=frequencies,
-            frequency_dirs=frequency_dirs,
             sensor_types=sensor_types,
             sample_ids=sample_ids,
         )
@@ -79,11 +64,10 @@ class DataLoader:
         if not filtered_files:
             logger.warning(
                 "No files found matching criteria: "
-                f"condition={condition or conditions}, "
-                f"load={load or loads}, "
-                f"frequency={frequency or frequencies}, "
-                f"frequency_dir={frequency_dirs}, "
-                f"sensor_type={sensor_type or sensor_types}"
+                f"classes={classes}, "
+                f"loads={loads}, "
+                f"frequencies={frequencies}, "
+                f"sensor_types={sensor_types}"
             )
             return [], []
         

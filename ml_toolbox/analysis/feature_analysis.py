@@ -38,9 +38,9 @@ def extract_features_for_frequency(data_loader, frequency: str, load: str = "no 
     
     # Load current sensor data
     current_data, current_metadata = data_loader.load_batch(
-        sensor_type="current",
-        frequency=frequency,
-        load=load,
+        sensor_types="current",
+        frequencies=frequency,
+        loads=load,
         max_workers=1
     )
     
