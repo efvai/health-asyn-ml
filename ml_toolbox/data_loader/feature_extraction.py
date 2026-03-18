@@ -357,7 +357,7 @@ def extract_features_for_ml(windows: np.ndarray,
     if sensor_type == "current":
         channel_names = ["ph_a", "ph_b"]
     elif sensor_type == "vibration":
-        channel_names = ["vibration_x", "vibration_y", "vibration_z", "vibration_w"]
+        channel_names = ["v_ch1_x", "v_ch2_z", "v_ch3_x", "v_ch4_z"]
     else:
         n_channels = windows.shape[2] if len(windows.shape) == 3 else 1
         channel_names = [f"ch{i}" for i in range(n_channels)]

@@ -89,7 +89,7 @@ class FeatureConfig:
                     "params": {"window_type": "hann"},
                 },
                 "hilbert_envelope": {"enabled": False},
-                "cross_channel": {"enabled": True},
+                "cross_channel": {"enabled": False},
             },
         },
     }

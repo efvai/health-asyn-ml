@@ -31,30 +31,32 @@ class DataLoader:
     
     def load_batch(self, 
                    condition: Optional[str] = None,
-                   load: Optional[str] = None, 
-                   frequency: Optional[str] = None,
+                   load: Optional[Union[str, float, int]] = None, 
+                   frequency: Optional[Union[str, float, int]] = None,
                    sensor_type: Optional[str] = None,
                    max_workers: int = 4,
                    *,
                    conditions: Optional[Union[str, Sequence[str]]] = None,
-                   loads: Optional[Union[str, Sequence[str]]] = None,
-                   frequencies: Optional[Union[str, Sequence[str]]] = None,
+                   loads: Optional[Union[Union[str, float, int], Sequence[Union[str, float, int]]]] = None,
+                   frequencies: Optional[Union[Union[str, float, int], Sequence[Union[str, float, int]]]] = None,
                    frequency_dirs: Optional[Union[str, Sequence[str]]] = None,
-                   sensor_types: Optional[Union[str, Sequence[str]]] = None) -> Tuple[List[np.ndarray], List[Dict]]:
+                   sensor_types: Optional[Union[str, Sequence[str]]] = None,
+                   sample_ids: Optional[Union[str, Sequence[str]]] = None) -> Tuple[List[np.ndarray], List[Dict]]:
         """
         Load batch of data with optional filtering.
         
         Args:
-            condition: Filter by a single condition (e.g., 'healthy').
-            load: Filter by a single load level (e.g., 'no_load').
-            frequency: Filter by a base frequency (e.g., '10hz').
+            condition: Filter by class label (e.g., 'healthy').
+            load: Filter by numeric load value.
+            frequency: Filter by electrical frequency in Hz.
             sensor_type: Filter by a single sensor type ('current', 'vibration').
             max_workers: Number of parallel workers for loading.
-            conditions: One or more conditions to include. Supersedes ``condition`` when provided.
-            loads: One or more load levels to include. Supersedes ``load`` when provided.
-            frequencies: One or more base frequencies to include. Supersedes ``frequency`` when provided.
-            frequency_dirs: One or more specific frequency directories (e.g., '10hz_1').
+            conditions: One or more class labels to include. Supersedes ``condition`` when provided.
+            loads: One or more load values to include. Supersedes ``load`` when provided.
+            frequencies: One or more electrical frequencies to include. Supersedes ``frequency`` when provided.
+            frequency_dirs: Ignored (kept for backward compatibility).
             sensor_types: One or more sensor types to include. Supersedes ``sensor_type`` when provided.
+            sample_ids: Optional sample directory names to include (e.g., '0001').
             
         Returns:
             Tuple of (data_list, metadata_list)
@@ -71,6 +73,7 @@ class DataLoader:
             frequencies=frequencies,
             frequency_dirs=frequency_dirs,
             sensor_types=sensor_types,
+            sample_ids=sample_ids,
         )
         
         if not filtered_files:
@@ -108,15 +111,11 @@ class DataLoader:
         return data_list, metadata_list
     
     def get_label_mapping(self) -> Dict[int, str]:
-        """Get mapping from numerical labels to condition names."""
-        return {
-            0: "healthy",
-            1: "faulty_bearing", 
-            2: "misalignment",
-            3: "system_misalignment"
-        }
+        """Get mapping from numerical labels to class names based on the index."""
+        classes = self.dataset_manager.get_index().get("classes", [])
+        return {idx: cls for idx, cls in enumerate(classes)}
 
     def get_condition_map(self) -> Dict[str, int]:
-        """Get mapping from condition names to numerical labels."""
-        conditions = self.dataset_manager.get_index().get("conditions", [])
-        return {condition: idx for idx, condition in enumerate(conditions)}
+        """Get mapping from class names to numerical labels."""
+        classes = self.dataset_manager.get_index().get("classes", [])
+        return {cls: idx for idx, cls in enumerate(classes)}

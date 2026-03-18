@@ -262,7 +262,7 @@ def create_windows_for_ml(data_list: List[np.ndarray],
                          overlap_ratio: float = 0.5,
                          max_windows_per_class: Optional[int] = None,
                          *,
-                         target_key: str = 'condition',
+                         target_key: Optional[str] = None,
                          condition_map: Optional[Dict[str, int]] = None,
                          random_state: Optional[int] = None,
                          shuffle: bool = True) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
@@ -275,7 +275,8 @@ def create_windows_for_ml(data_list: List[np.ndarray],
         window_size: Size of each window
         overlap_ratio: Overlap between consecutive windows
         max_windows_per_class: Maximum windows per class
-        target_key: Metadata key that holds the class label
+        target_key: Metadata key that holds the class label. If None, auto-infer
+            ('class' preferred, otherwise 'condition').
         condition_map: Optional mapping from condition names to numeric labels
         unknown_label: Label assigned when condition is missing from the map
         random_state: Seed for deterministic sampling
@@ -297,11 +298,13 @@ def create_windows_for_ml(data_list: List[np.ndarray],
         overlap_ratio=overlap_ratio
     )
     
+    inferred_target_key = _infer_target_key(metadata_list, target_key)
+
     extractor = StratifiedWindowExtractor(config)
     windows, win_metadata = extractor.extract_stratified_windows(
         data_list,
         metadata_list,
-        target_key=target_key,
+        target_key=inferred_target_key,
         max_windows_per_class=max_windows_per_class,
         random_state=random_state,
         shuffle=shuffle
@@ -312,9 +315,9 @@ def create_windows_for_ml(data_list: List[np.ndarray],
     
     if condition_map is None:
         observed_conditions = {
-            meta.get(target_key, 'unknown')
+            meta.get(inferred_target_key, 'unknown')
             for meta in win_metadata
-            if meta.get(target_key, 'unknown') != 'unknown'
+            if meta.get(inferred_target_key, 'unknown') != 'unknown'
         }
         condition_map = {
             condition: idx for idx, condition in enumerate(sorted(observed_conditions))
@@ -322,8 +325,18 @@ def create_windows_for_ml(data_list: List[np.ndarray],
 
     labels = []
     for meta in win_metadata:
-        condition = meta.get(target_key, 'unknown')
+        condition = meta.get(inferred_target_key, 'unknown')
         label = condition_map.get(condition, -1)
         labels.append(label)
 
     return windows, np.array(labels, dtype=np.int32), win_metadata
+
+
+def _infer_target_key(metadata_list: List[Dict], explicit: Optional[str]) -> str:
+    """Choose target key, preferring explicit, else 'class' if present, else 'condition'."""
+    if explicit:
+        return explicit
+    for meta in metadata_list:
+        if 'class' in meta:
+            return 'class'
+    return 'condition'
