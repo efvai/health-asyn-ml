@@ -179,7 +179,7 @@ class FeatureExtractor:
         n_windows, window_size, n_channels = windows.shape
         
         if channel_names is None:
-            channel_names = [f"ch{i}" for i in range(n_channels)]
+            channel_names = [f"ch{i+1}" for i in range(n_channels)]
         
         # Extract features from first window to get feature names
         sample_features = self.extract_features_multichannel(windows[0], channel_names)
@@ -259,7 +259,7 @@ class FeatureExtractor:
 
 def extract_categorical_features(metadata_list: List[Dict]) -> Tuple[np.ndarray, List[str]]:
     """
-    Extract categorical features from metadata.
+    Extract metadata-derived contextual features for ML.
     
     Args:
         metadata_list: List of metadata dictionaries
@@ -274,40 +274,45 @@ def extract_categorical_features(metadata_list: List[Dict]) -> Tuple[np.ndarray,
     categorical_features = []
     feature_names = []
     
-    # Extract numerical frequency value (for regression-style features)
-    freq_values = []
-    for meta in metadata_list:
-        freq_str = meta.get('frequency', '0hz')
-        # Extract number from frequency string (e.g., "20hz" -> 20)
-        import re
-        match = re.search(r'(\d+)', freq_str)
-        freq_val = float(match.group(1)) if match else 0.0
+    # Numeric metadata contract:
+    # - electrical_frequency_hz: float/int
+    # - load: float/int (continuous value)
+    freq_values: List[float] = []
+    load_values: List[float] = []
+
+    for i, meta in enumerate(metadata_list):
+        if 'electrical_frequency_hz' not in meta:
+            raise ValueError(
+                f"metadata_list[{i}] missing required key 'electrical_frequency_hz'"
+            )
+        if 'load' not in meta:
+            raise ValueError(f"metadata_list[{i}] missing required key 'load'")
+
+        freq_raw = meta.get('electrical_frequency_hz')
+        load_raw = meta.get('load')
+
+        try:
+            freq_val = float(freq_raw)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"metadata_list[{i}]['electrical_frequency_hz'] must be numeric, got {freq_raw!r}"
+            ) from None
+
+        try:
+            load_val = float(load_raw)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"metadata_list[{i}]['load'] must be numeric, got {load_raw!r}"
+            ) from None
+
         freq_values.append(freq_val)
-    
+        load_values.append(load_val)
+
     categorical_features.append(freq_values)
     feature_names.append('frequency_hz')
-    
-    # Extract load condition as single binary feature (1 = under_load, 0 = no_load)
-    load_values = []
-    for meta in metadata_list:
-        load = meta.get('load', 'unknown')
-        
-        # Check frequency_dir for implicit load condition (e.g., 20hz_4, 20hz_5, 20hz_6)
-        freq_dir = meta.get('frequency_dir', '')
-        import re
-        freq_match = re.search(r'(\d+)hz[_\s](\d+)', freq_dir)
-        
-        # If frequency_dir number > 3, it's under load
-        if freq_match and int(freq_match.group(2)) > 3:
-            load_val = 1
-        else:
-            # Otherwise use the explicit load field
-            load_val = 1 if load == 'under_load' else 0
-        
-        load_values.append(load_val)
-    
+
     categorical_features.append(load_values)
-    feature_names.append('load_under_load')
+    feature_names.append('load')
     
     # Extract sensor type features if available
     sensor_types = set()
@@ -324,7 +329,7 @@ def extract_categorical_features(metadata_list: List[Dict]) -> Tuple[np.ndarray,
     
     # Convert to numpy array
     if categorical_features:
-        categorical_matrix = np.array(categorical_features).T
+        categorical_matrix = np.array(categorical_features, dtype=float).T
     else:
         categorical_matrix = np.array([]).reshape(n_windows, 0)
     
@@ -332,7 +337,7 @@ def extract_categorical_features(metadata_list: List[Dict]) -> Tuple[np.ndarray,
 
 
 def extract_features_for_ml(windows: np.ndarray, 
-                           sensor_type: str = "current",
+                           sensor_type: str,
                            feature_config: Optional[FeatureConfig] = None,
                            metadata_list: Optional[List[Dict]] = None) -> tuple:
     """
@@ -352,18 +357,9 @@ def extract_features_for_ml(windows: np.ndarray,
     else:
         feature_config = feature_config.copy()
         feature_config.apply_sensor_profile(sensor_type, override=False)
-    
-    # Set channel names based on sensor type
-    if sensor_type == "current":
-        channel_names = ["ph_a", "ph_b"]
-    elif sensor_type == "vibration":
-        channel_names = ["v_ch1_x", "v_ch2_z", "v_ch3_x", "v_ch4_z"]
-    else:
-        n_channels = windows.shape[2] if len(windows.shape) == 3 else 1
-        channel_names = [f"ch{i}" for i in range(n_channels)]
-    
+     
     extractor = FeatureExtractor(feature_config)
-    signal_features, signal_feature_names = extractor.extract_features_batch(windows, channel_names)
+    signal_features, signal_feature_names = extractor.extract_features_batch(windows)
     
     # Extract categorical features from metadata if provided
     if metadata_list is not None:
