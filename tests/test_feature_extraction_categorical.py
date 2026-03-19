@@ -3,6 +3,7 @@ import pytest
 
 from ml_toolbox.data_loader.feature_extraction import (
     FeatureConfig,
+    FeatureExtractor,
     extract_categorical_features,
     extract_features_for_ml,
 )
@@ -73,9 +74,27 @@ def test_extract_categorical_features_raises_for_non_numeric_load():
 def test_extract_features_for_ml_appends_categorical_columns():
     windows = np.random.randn(3, 1024, 1)
     metadata_list = [
-        {"class": "healthy", "electrical_frequency_hz": 30.0, "load": 0.1, "sensor_type": "current"},
-        {"class": "healthy", "electrical_frequency_hz": 30.0, "load": 0.2, "sensor_type": "current"},
-        {"class": "healthy", "electrical_frequency_hz": 30.0, "load": 0.3, "sensor_type": "current"},
+        {
+            "class": "healthy",
+            "electrical_frequency_hz": 30.0,
+            "load": 0.1,
+            "sensor_type": "vibration",
+            "sample_rate_vibro_hz": 26041.0,
+        },
+        {
+            "class": "healthy",
+            "electrical_frequency_hz": 30.0,
+            "load": 0.2,
+            "sensor_type": "vibration",
+            "sample_rate_vibro_hz": 26041.0,
+        },
+        {
+            "class": "healthy",
+            "electrical_frequency_hz": 30.0,
+            "load": 0.3,
+            "sensor_type": "vibration",
+            "sample_rate_vibro_hz": 26041.0,
+        },
     ]
     config = FeatureConfig.for_sensor("vibration")
 
@@ -91,3 +110,45 @@ def test_extract_features_for_ml_appends_categorical_columns():
 
     np.testing.assert_allclose(feature_matrix[:, -2], np.array([30.0, 30.0, 30.0]))
     np.testing.assert_allclose(feature_matrix[:, -1], np.array([0.1, 0.2, 0.3]))
+
+
+def test_extract_features_for_ml_requires_metadata_sample_rate_when_frequency_enabled():
+    windows = np.random.randn(2, 1024, 1)
+
+    with pytest.raises(ValueError, match="metadata_list is required"):
+        extract_features_for_ml(
+            windows,
+            sensor_type="vibration",
+            feature_config=FeatureConfig.for_sensor("vibration"),
+            metadata_list=None,
+        )
+
+
+def test_extract_features_for_ml_requires_metadata_length_to_match_windows():
+    windows = np.random.randn(2, 1024, 1)
+    metadata_list = [
+        {
+            "class": "healthy",
+            "electrical_frequency_hz": 20.0,
+            "load": 0.1,
+            "sensor_type": "vibration",
+            "sample_rate_vibro_hz": 26041.0,
+        }
+    ]
+
+    with pytest.raises(ValueError, match="metadata_list length"):
+        extract_features_for_ml(
+            windows,
+            sensor_type="vibration",
+            feature_config=FeatureConfig.for_sensor("vibration"),
+            metadata_list=metadata_list,
+        )
+
+
+def test_selected_channels_raises_when_requested_channel_missing():
+    config = FeatureConfig(selected_channels=["ch9"])
+    extractor = FeatureExtractor(config)
+    signal = np.random.randn(128, 2)
+
+    with pytest.raises(ValueError, match="selected_channels"):
+        extractor.extract_features_multichannel(signal, channel_names=["ch1", "ch2"])

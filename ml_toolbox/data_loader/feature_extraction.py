@@ -10,7 +10,7 @@ This module now uses modular feature extraction classes for better organization 
 
 import numpy as np
 from itertools import combinations
-from typing import Dict, List, Optional, Union, Callable, Tuple
+from typing import Any, Dict, List, Optional, Union, Callable, Tuple
 import logging
 
 
@@ -23,6 +23,41 @@ from .features import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _sampling_rate_key_for_sensor(sensor_type: str) -> str:
+    sensor = sensor_type.lower()
+    if sensor == "current":
+        return "sample_rate_current_hz"
+    if sensor == "vibration":
+        return "sample_rate_vibro_hz"
+    raise ValueError(f"Unsupported sensor_type for sampling-rate lookup: {sensor_type!r}")
+
+
+def _resolve_sampling_rate_from_metadata(
+    metadata: Dict[str, Any],
+    *,
+    sensor_type: str,
+    index: int,
+) -> float:
+    key = _sampling_rate_key_for_sensor(sensor_type)
+    if key not in metadata:
+        raise ValueError(f"metadata_list[{index}] missing required key '{key}'")
+
+    raw_value = metadata.get(key)
+    try:
+        sampling_rate = float(raw_value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"metadata_list[{index}]['{key}'] must be numeric, got {raw_value!r}"
+        ) from None
+
+    if sampling_rate <= 0:
+        raise ValueError(
+            f"metadata_list[{index}]['{key}'] must be > 0, got {sampling_rate!r}"
+        )
+
+    return sampling_rate
     
 class FeatureExtractor:
     """Main feature extraction class."""
@@ -33,7 +68,13 @@ class FeatureExtractor:
         self.frequency_domain = FrequencyDomainFeatures()
         self.hilbert_envelope = HilbertEnvelopeFeatures()
 
-    def extract_features(self, signal: np.ndarray, channel_name: str = "ch") -> Dict[str, float]:
+    def extract_features(
+        self,
+        signal: np.ndarray,
+        channel_name: str = "ch",
+        *,
+        sampling_rate: Optional[float] = None,
+    ) -> Dict[str, float]:
         """
         Extract comprehensive features from a single-channel signal.
         
@@ -66,7 +107,11 @@ class FeatureExtractor:
         # Frequency domain features
         if self.config.frequency_domain:
             freq_params = self.config.get_params("frequency_domain")
-            sampling_rate = freq_params.get("sampling_rate", self.config.sampling_rate)
+            if sampling_rate is None:
+                raise ValueError(
+                    "sampling_rate is required for frequency_domain features. "
+                    "Resolve it from metadata before extraction."
+                )
             window_type = freq_params.get("window_type", self.config.window_type)
             fft_result = self.frequency_domain.fft_features(
                 signal, sampling_rate, window_type
@@ -76,8 +121,13 @@ class FeatureExtractor:
         
         return features
     
-    def extract_features_multichannel(self, signal: np.ndarray, 
-                                    channel_names: Optional[List[str]] = None) -> Dict[str, float]:
+    def extract_features_multichannel(
+        self,
+        signal: np.ndarray,
+        channel_names: Optional[List[str]] = None,
+        *,
+        sampling_rate: Optional[float] = None,
+    ) -> Dict[str, float]:
         """
         Extract features from multi-channel signal.
         
@@ -100,19 +150,19 @@ class FeatureExtractor:
         
         # Extract features for requested channels
         name_to_index = {name: idx for idx, name in enumerate(channel_names)}
-        selected_names = self.config.resolve_channel_scope(channel_names)
+        selected_names = self.config.resolve_selected_channels(channel_names)
         channel_indices: List[int] = [
             name_to_index[name] for name in selected_names if name in name_to_index
         ]
 
-        if not channel_indices:
-            channel_indices = list(range(n_channels))
-            selected_names = [channel_names[idx] for idx in channel_indices]
-
         for idx in channel_indices:
             ch_name = channel_names[idx]
             ch_signal = signal[:, idx]
-            ch_features = self.extract_features(ch_signal, ch_name)
+            ch_features = self.extract_features(
+                ch_signal,
+                ch_name,
+                sampling_rate=sampling_rate,
+            )
             all_features.update(ch_features)
         
         # Cross-channel features: iterate channel pairs once and call
@@ -161,8 +211,13 @@ class FeatureExtractor:
     
     # NOTE: cross-channel features are now provided by `TimeDomainFeatures.cross_correlation_features`
     
-    def extract_features_batch(self, windows: np.ndarray, 
-                             channel_names: Optional[List[str]] = None) -> tuple:
+    def extract_features_batch(
+        self,
+        windows: np.ndarray,
+        channel_names: Optional[List[str]] = None,
+        *,
+        sampling_rates: Optional[List[float]] = None,
+    ) -> tuple:
         """
         Extract features from a batch of windows.
         
@@ -177,12 +232,28 @@ class FeatureExtractor:
             raise ValueError("Windows must be 3D (n_windows, window_size, n_channels)")
         
         n_windows, window_size, n_channels = windows.shape
+
+        if sampling_rates is not None and len(sampling_rates) != n_windows:
+            raise ValueError(
+                f"sampling_rates length ({len(sampling_rates)}) must match n_windows ({n_windows})"
+            )
+
+        if self.config.frequency_domain and sampling_rates is None:
+            raise ValueError(
+                "sampling_rates are required when frequency_domain features are enabled"
+            )
         
         if channel_names is None:
             channel_names = [f"ch{i+1}" for i in range(n_channels)]
+
+        first_sampling_rate = sampling_rates[0] if sampling_rates is not None else None
         
         # Extract features from first window to get feature names
-        sample_features = self.extract_features_multichannel(windows[0], channel_names)
+        sample_features = self.extract_features_multichannel(
+            windows[0],
+            channel_names,
+            sampling_rate=first_sampling_rate,
+        )
         feature_names = list(sample_features.keys())
         n_features = len(feature_names)
         
@@ -191,7 +262,12 @@ class FeatureExtractor:
         
         # Extract features for all windows
         for i in range(n_windows):
-            window_features = self.extract_features_multichannel(windows[i], channel_names)
+            current_sampling_rate = sampling_rates[i] if sampling_rates is not None else None
+            window_features = self.extract_features_multichannel(
+                windows[i],
+                channel_names,
+                sampling_rate=current_sampling_rate,
+            )
             
             # Check for missing features and handle them
             feature_values = []
@@ -357,9 +433,29 @@ def extract_features_for_ml(windows: np.ndarray,
     else:
         feature_config = feature_config.copy()
         feature_config.apply_sensor_profile(sensor_type, override=False)
+
+    n_windows = windows.shape[0]
+    if metadata_list is not None and len(metadata_list) != n_windows:
+        raise ValueError(
+            f"metadata_list length ({len(metadata_list)}) must match n_windows ({n_windows})"
+        )
+
+    sampling_rates: Optional[List[float]] = None
+    if feature_config.frequency_domain:
+        if metadata_list is None:
+            raise ValueError(
+                "metadata_list is required when frequency_domain features are enabled"
+            )
+        sampling_rates = [
+            _resolve_sampling_rate_from_metadata(meta, sensor_type=sensor_type, index=i)
+            for i, meta in enumerate(metadata_list)
+        ]
      
     extractor = FeatureExtractor(feature_config)
-    signal_features, signal_feature_names = extractor.extract_features_batch(windows)
+    signal_features, signal_feature_names = extractor.extract_features_batch(
+        windows,
+        sampling_rates=sampling_rates,
+    )
     
     # Extract categorical features from metadata if provided
     if metadata_list is not None:

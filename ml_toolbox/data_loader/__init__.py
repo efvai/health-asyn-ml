@@ -15,7 +15,6 @@ from .features import (
     FeatureConfig, FeatureFamilyConfig,
     TimeDomainFeatures, FrequencyDomainFeatures, HilbertEnvelopeFeatures
 )
-from .features.base import CURRENT_SAMPLING_RATE, VIBRATION_SAMPLING_RATE
 
 from .envelope_analyzer import (
     HilbertEnvelopeAnalyzer, EnvelopeConfig
@@ -35,8 +34,6 @@ __all__ = [
     'HilbertEnvelopeFeatures',
     'FeatureFamilyConfig',
     'extract_features_for_ml',
-    'CURRENT_SAMPLING_RATE',
-    'VIBRATION_SAMPLING_RATE',
     'HilbertEnvelopeAnalyzer',
     'EnvelopeConfig'
 ]

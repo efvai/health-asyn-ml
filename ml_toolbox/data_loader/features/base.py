@@ -6,9 +6,6 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Dict, List, Optional
 import copy
 
-# Sensor-specific sampling rates
-CURRENT_SAMPLING_RATE = 10000.0   # LTR11 - Current sensors
-VIBRATION_SAMPLING_RATE = 26041.0 # LTR22 - Vibration sensors
 ENV_CARRIER_FREQUENCY = 1670.0    # Hz - Expected carrier frequency for Hilbert envelope analysis
 
 
@@ -57,18 +54,16 @@ _DEFAULT_FAMILY_FLAGS = {
 class FeatureConfig:
     """Configuration object orchestrating feature family selection and tuning."""
 
-    sampling_rate: float = CURRENT_SAMPLING_RATE
     window_type: str = "hann"
     families: Dict[str, FeatureFamilyConfig] = field(default_factory=_default_family_config)
     sensor_type: Optional[str] = None
-    channel_scope: Optional[List[str]] = None
+    selected_channels: Optional[List[str]] = None
 
     # Default sensor profiles for convenience. These profiles can be extended as new
     # sensor modalities are introduced without modifying call-sites.
     SENSOR_PROFILES: ClassVar[Dict[str, Dict[str, Any]]] = {
         "current": {
-            "sampling_rate": CURRENT_SAMPLING_RATE,
-            "channel_scope": ["ph_a"],
+            "selected_channels": ["ph_a"],
             "families": {
                 "time_domain": {"enabled": True},
                 "frequency_domain": {"enabled": False},
@@ -80,8 +75,7 @@ class FeatureConfig:
             },
         },
         "vibration": {
-            "sampling_rate": VIBRATION_SAMPLING_RATE,
-            "channel_scope": None,
+            "selected_channels": None,
             "families": {
                 "time_domain": {"enabled": True},
                 "frequency_domain": {
@@ -97,11 +91,10 @@ class FeatureConfig:
     def copy(self) -> "FeatureConfig":
         """Return a deep copy of the configuration."""
         return FeatureConfig(
-            sampling_rate=self.sampling_rate,
             window_type=self.window_type,
             families={name: fam.copy() for name, fam in self.families.items()},
             sensor_type=self.sensor_type,
-            channel_scope=copy.deepcopy(self.channel_scope),
+            selected_channels=copy.deepcopy(self.selected_channels),
         )
 
     # -- family registration and manipulation -------------------------------------------------
@@ -213,13 +206,9 @@ class FeatureConfig:
         if not profile:
             return
 
-        target_rate = profile.get("sampling_rate")
-        if target_rate is not None and (override or self.sampling_rate == CURRENT_SAMPLING_RATE):
-            self.sampling_rate = target_rate
-
-        profile_scope = profile.get("channel_scope")
-        if override or self.channel_scope is None:
-            self.channel_scope = copy.deepcopy(profile_scope)
+        profile_scope = profile.get("selected_channels")
+        if override or self.selected_channels is None:
+            self.selected_channels = copy.deepcopy(profile_scope)
 
         for family_name, family_data in profile.get("families", {}).items():
             default_flag = _DEFAULT_FAMILY_FLAGS.get(family_name)
@@ -261,28 +250,40 @@ class FeatureConfig:
         return config
 
     # -- helpers ------------------------------------------------------------------------------
-    def resolve_channel_scope(self, available_names: List[str]) -> List[str]:
-        """Return the channel names to use for per-channel features."""
+    def resolve_selected_channels(self, available_names: List[str]) -> List[str]:
+        """Resolve requested channels against available names.
+
+        Returns all available channels when no explicit channel selection is set.
+        """
 
         if not available_names:
             return []
 
-        if self.channel_scope:
-            selected = [name for name in self.channel_scope if name in available_names]
-            return selected if selected else available_names
+        if self.selected_channels is None:
+            return available_names
 
-        return available_names
+        missing = [name for name in self.selected_channels if name not in available_names]
+        if missing:
+            raise ValueError(
+                "selected_channels contains channels not present in this signal: "
+                f"missing={missing}, available={available_names}"
+            )
+
+        return [name for name in self.selected_channels if name in available_names]
 
     def update_from_dict(self, overrides: Dict[str, Any]) -> None:
         """Bulk update configuration from a dictionary payload."""
 
         for key, value in overrides.items():
             if key == "sampling_rate":
-                self.sampling_rate = value
+                raise ValueError(
+                    "sampling_rate is no longer a FeatureConfig field. "
+                    "Provide per-window sampling rate in metadata instead."
+                )
             elif key == "window_type":
                 self.window_type = value
-            elif key == "channel_scope":
-                self.channel_scope = copy.deepcopy(value)
+            elif key == "selected_channels":
+                self.selected_channels = copy.deepcopy(value)
             elif key == "families" and isinstance(value, dict):
                 for family_name, family_data in value.items():
                     params = family_data.get("params") if isinstance(family_data, dict) else None
