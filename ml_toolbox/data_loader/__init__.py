@@ -6,7 +6,7 @@ from .dataset_manager import DatasetManager
 from .data_loader import DataLoader  
 from .windowing import (
     WindowConfig, WindowExtractor, StratifiedWindowExtractor, 
-    create_windows_for_ml
+    create_windows_for_ml, create_label_to_class_map
 )
 from .feature_extraction import (
     FeatureExtractor, extract_features_for_ml
@@ -27,6 +27,7 @@ __all__ = [
     'WindowExtractor',
     'StratifiedWindowExtractor',
     'create_windows_for_ml',
+    'create_label_to_class_map',
     'FeatureConfig',
     'FeatureExtractor',
     'TimeDomainFeatures',

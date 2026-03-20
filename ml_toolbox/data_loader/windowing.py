@@ -15,6 +15,23 @@ logger = logging.getLogger(__name__)
 # in environments that configure logging handlers, e.g. notebooks)
 #logger.propagate = False
 
+
+def create_label_to_class_map(window_metadata: List[Dict]) -> Dict[int, str]:
+    """Rebuild the numeric-label to class-name mapping used by create_windows_for_ml.
+
+    The mapping is deterministic and follows the same sorted-class convention as
+    create_windows_for_ml.
+    """
+    observed_classes = {
+        meta.get('class', 'unknown')
+        for meta in window_metadata
+        if meta.get('class', 'unknown') != 'unknown'
+    }
+    class_map = {
+        class_name: idx for idx, class_name in enumerate(sorted(observed_classes))
+    }
+    return {idx: class_name for class_name, idx in class_map.items()}
+
 @dataclass
 class WindowConfig:
     """Configuration for windowing parameters."""
@@ -302,14 +319,8 @@ def create_windows_for_ml(data_list: List[np.ndarray],
     if len(windows) == 0:
         return np.array([]), np.array([]), []
 
-    observed_classes = {
-        meta.get('class', 'unknown')
-        for meta in win_metadata
-        if meta.get('class', 'unknown') != 'unknown'
-    }
-    class_map = {
-        class_name: idx for idx, class_name in enumerate(sorted(observed_classes))
-    }
+    label_to_class = create_label_to_class_map(win_metadata)
+    class_map = {class_name: idx for idx, class_name in label_to_class.items()}
 
     labels = []
     for meta in win_metadata:

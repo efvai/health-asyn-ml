@@ -63,7 +63,7 @@ class FeatureConfig:
     # sensor modalities are introduced without modifying call-sites.
     SENSOR_PROFILES: ClassVar[Dict[str, Dict[str, Any]]] = {
         "current": {
-            "selected_channels": ["ph_a"],
+            "selected_channels": None,
             "families": {
                 "time_domain": {"enabled": True},
                 "frequency_domain": {"enabled": False},

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ml_toolbox.data_loader.windowing import create_windows_for_ml
+from ml_toolbox.data_loader.windowing import create_windows_for_ml, create_label_to_class_map
 
 
 def _make_dataset():
@@ -70,3 +70,21 @@ def test_create_windows_for_ml_rejects_removed_random_state_argument():
             window_size=10,
             random_state=42,
         )
+
+
+def test_create_label_to_class_map_matches_window_labels():
+    data_list, metadata_list = _make_dataset()
+
+    _, labels, win_metadata = create_windows_for_ml(
+        data_list=data_list,
+        metadata_list=metadata_list,
+        window_size=10,
+        overlap_ratio=0.5,
+        max_windows_per_class=2,
+        shuffle=False,
+    )
+
+    label_to_class = create_label_to_class_map(win_metadata)
+
+    for meta, label in zip(win_metadata, labels):
+        assert label_to_class[int(label)] == meta["class"]
