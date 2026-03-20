@@ -7,17 +7,99 @@ accept or include a `frequency` argument so it can be reused across modules.
 """
 
 import numpy as np
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
+from concurrent.futures import ProcessPoolExecutor
+import os
 
 from sklearn.base import clone
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, confusion_matrix
 
 
 import shap
 
-def evaluate_model_cv(pipeline, features: np.ndarray, labels: np.ndarray, cv_folds: int = 5) -> Dict[str, Any]:
+
+def _resolve_n_jobs(cv_folds: int, n_jobs: int | None) -> int:
+    if n_jobs is None:
+        return max(1, min(cv_folds, os.cpu_count() or 1))
+    if not isinstance(n_jobs, int) or n_jobs < 1:
+        raise ValueError(f"n_jobs must be a positive integer or None, got {n_jobs!r}.")
+    return n_jobs
+
+
+def _run_cv_fold(
+    fold_idx: int,
+    pipeline,
+    features: np.ndarray,
+    labels: np.ndarray,
+    train_idx: np.ndarray,
+    val_idx: np.ndarray,
+):
+    X_train, X_val = features[train_idx], features[val_idx]
+    y_train = labels[train_idx]
+    y_val = labels[val_idx]
+
+    est = clone(pipeline)
+    est.fit(X_train, y_train)
+
+    preds = est.predict(X_val)
+    score = est.score(X_val, y_val)
+
+    return {
+        "fold_idx": fold_idx,
+        "val_idx": val_idx,
+        "preds": preds,
+        "score": score,
+        "estimator": est,
+    }
+
+
+def _run_cv_shap_fold(
+    fold_idx: int,
+    pipeline,
+    features: np.ndarray,
+    labels: np.ndarray,
+    train_idx: np.ndarray,
+    val_idx: np.ndarray,
+):
+    X_train = features[train_idx]
+    y_train = labels[train_idx]
+    X_val = features[val_idx]
+
+    est = clone(pipeline)
+    est.fit(X_train, y_train)
+
+    if "scaler" not in est.named_steps or "rf" not in est.named_steps:
+        raise ValueError(
+            "cv_shap requires pipeline.named_steps to include both 'scaler' and 'rf'."
+        )
+
+    scaler = est.named_steps["scaler"]
+    model = est.named_steps["rf"]
+
+    X_train_scaled = scaler.transform(X_train)
+    X_val_scaled = scaler.transform(X_val)
+
+    explainer = shap.TreeExplainer(model, data=X_train_scaled)
+    shap_vals = explainer.shap_values(X_val_scaled)
+
+    return {
+        "fold_idx": fold_idx,
+        "train_idx": train_idx,
+        "val_idx": val_idx,
+        "shap_values": shap_vals,
+        "expected_value": explainer.expected_value,
+        "estimator": est,
+    }
+
+def evaluate_model_cv(
+    pipeline,
+    features: np.ndarray,
+    labels: np.ndarray,
+    cv_folds: int = 5,
+    parallel: bool = False,
+    n_jobs: int | None = None,
+) -> Dict[str, Any]:
     """
     Evaluate model performance using cross-validation (standalone).
 
@@ -32,7 +114,14 @@ def evaluate_model_cv(pipeline, features: np.ndarray, labels: np.ndarray, cv_fol
     """
     print(f"Evaluating model (features: {features.shape}, samples: {len(labels)})...")
 
-    cv_data = cross_validate_with_models(pipeline, features, labels, cv_folds)
+    cv_data = cross_validate_with_models(
+        pipeline,
+        features,
+        labels,
+        cv_folds=cv_folds,
+        parallel=parallel,
+        n_jobs=n_jobs,
+    )
     cv_predictions = cv_data["cv_predictions"]
     cv_scores = cv_data["cv_scores"]
 
@@ -114,7 +203,9 @@ def cross_validate_with_models(
     pipeline,
     features: np.ndarray,
     labels: np.ndarray,
-    cv_folds: int = 5
+    cv_folds: int = 5,
+    parallel: bool = False,
+    n_jobs: int | None = None,
 ):
     """
     Perform cross-validation manually and return:
@@ -129,19 +220,41 @@ def cross_validate_with_models(
     cv_scores = []
     estimators = []
 
-    for train_idx, val_idx in cv.split(features, labels):
-        X_train, X_val = features[train_idx], features[val_idx]
-        y_train = labels[train_idx]
-        y_val = labels[val_idx]
+    fold_splits: List[Tuple[np.ndarray, np.ndarray]] = list(cv.split(features, labels))
 
-        est = clone(pipeline)
-        est.fit(X_train, y_train)
-
-        preds = est.predict(X_val)
-        cv_predictions[val_idx] = preds
-        cv_scores.append(est.score(X_val, y_val))
-
-        estimators.append((est, val_idx))
+    if parallel and len(fold_splits) > 1:
+        workers = _resolve_n_jobs(cv_folds=cv_folds, n_jobs=n_jobs)
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            fold_results = list(
+                executor.map(
+                    _run_cv_fold,
+                    range(len(fold_splits)),
+                    [pipeline] * len(fold_splits),
+                    [features] * len(fold_splits),
+                    [labels] * len(fold_splits),
+                    [s[0] for s in fold_splits],
+                    [s[1] for s in fold_splits],
+                )
+            )
+        fold_results.sort(key=lambda item: item["fold_idx"])
+        for fold_result in fold_results:
+            val_idx = fold_result["val_idx"]
+            cv_predictions[val_idx] = fold_result["preds"]
+            cv_scores.append(fold_result["score"])
+            estimators.append((fold_result["estimator"], val_idx))
+    else:
+        for fold_idx, (train_idx, val_idx) in enumerate(fold_splits):
+            fold_result = _run_cv_fold(
+                fold_idx=fold_idx,
+                pipeline=pipeline,
+                features=features,
+                labels=labels,
+                train_idx=train_idx,
+                val_idx=val_idx,
+            )
+            cv_predictions[val_idx] = fold_result["preds"]
+            cv_scores.append(fold_result["score"])
+            estimators.append((fold_result["estimator"], val_idx))
 
     return {
         "cv_scores": np.array(cv_scores),
@@ -153,46 +266,57 @@ def cv_shap(
     pipeline,
     features: np.ndarray,
     labels: np.ndarray,
-    cv_folds: int = 5
+    cv_folds: int = 5,
+    parallel: bool = False,
+    n_jobs: int | None = None,
 ):
     cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
 
     shap_per_fold = []
     estimators = []
 
-    for train_idx, val_idx in cv.split(features, labels):
-        X_train = features[train_idx]
-        y_train = labels[train_idx]
+    fold_splits: List[Tuple[np.ndarray, np.ndarray]] = list(cv.split(features, labels))
 
-        X_val = features[val_idx]
-
-        # --- 1. clone and fit full pipeline  ---
-        est = clone(pipeline)
-        est.fit(X_train, y_train)
-
-        # Store for user
-        estimators.append((est, val_idx))
-
-        # --- 2. Extract steps from pipeline  ---
-        scaler = est.named_steps["scaler"]
-        model = est.named_steps["rf"]
-        
-        # --- 3. Transform train + val exactly as during training ---
-        X_train_scaled = scaler.transform(X_train)
-        X_val_scaled = scaler.transform(X_val)
-
-        # --- 4. Build SHAP explainer with training fold as background ---
-        explainer = shap.TreeExplainer(model, data=X_train_scaled)
-
-        # --- 5. Compute shap values for validation samples (OOF) ---
-        shap_vals = explainer.shap_values(X_val_scaled)
-
-        shap_per_fold.append({
-            "train_idx": train_idx,
-            "val_idx": val_idx,
-            "shap_values": shap_vals,
-            "expected_value": explainer.expected_value
-        })
+    if parallel and len(fold_splits) > 1:
+        workers = _resolve_n_jobs(cv_folds=cv_folds, n_jobs=n_jobs)
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            fold_results = list(
+                executor.map(
+                    _run_cv_shap_fold,
+                    range(len(fold_splits)),
+                    [pipeline] * len(fold_splits),
+                    [features] * len(fold_splits),
+                    [labels] * len(fold_splits),
+                    [s[0] for s in fold_splits],
+                    [s[1] for s in fold_splits],
+                )
+            )
+        fold_results.sort(key=lambda item: item["fold_idx"])
+        for fold_result in fold_results:
+            estimators.append((fold_result["estimator"], fold_result["val_idx"]))
+            shap_per_fold.append({
+                "train_idx": fold_result["train_idx"],
+                "val_idx": fold_result["val_idx"],
+                "shap_values": fold_result["shap_values"],
+                "expected_value": fold_result["expected_value"],
+            })
+    else:
+        for fold_idx, (train_idx, val_idx) in enumerate(fold_splits):
+            fold_result = _run_cv_shap_fold(
+                fold_idx=fold_idx,
+                pipeline=pipeline,
+                features=features,
+                labels=labels,
+                train_idx=train_idx,
+                val_idx=val_idx,
+            )
+            estimators.append((fold_result["estimator"], fold_result["val_idx"]))
+            shap_per_fold.append({
+                "train_idx": fold_result["train_idx"],
+                "val_idx": fold_result["val_idx"],
+                "shap_values": fold_result["shap_values"],
+                "expected_value": fold_result["expected_value"],
+            })
 
     return {
         "shap_values_per_fold": shap_per_fold,
