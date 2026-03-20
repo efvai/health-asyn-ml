@@ -10,6 +10,72 @@ from scipy.signal import welch, find_peaks
 from typing import Dict, Optional, Any
 
 
+def prepare_time_frequency_view(sample: np.ndarray,
+                                metadata: Dict[str, Any],
+                                channel_index: int = 0,
+                                nperseg: Optional[int] = None,
+                                normalize: bool = True) -> Dict[str, Any]:
+    """
+    Prepare time-domain and frequency-domain data for one channel of a sample.
+
+    Parameters
+    ----------
+    sample : np.ndarray
+        Loaded sample array with shape ``[samples, channels]``.
+    metadata : Dict[str, Any]
+        Metadata for the sample. Must contain ``sensor_type`` and the matching
+        sampling-rate field for that sensor.
+    channel_index : int, default=0
+        Zero-based channel index to extract.
+    nperseg : int, optional
+        Segment length forwarded to ``compute_fft_spectrum``.
+    normalize : bool, default=True
+        Whether to normalize the spectrum.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary containing ``channel_signal``, ``time_axis``,
+        ``sampling_rate`` and ``spectrum``.
+    """
+    sample_array = np.asarray(sample)
+    if sample_array.ndim != 2:
+        raise ValueError("sample must have shape [samples, channels]")
+
+    if channel_index < 0 or channel_index >= sample_array.shape[1]:
+        raise IndexError(
+            f"channel_index {channel_index} is out of range for {sample_array.shape[1]} channels"
+        )
+
+    sensor_type = metadata.get("sensor_type")
+    if sensor_type == "vibration":
+        sampling_rate_key = "sample_rate_vibro_hz"
+    elif sensor_type == "current":
+        sampling_rate_key = "sample_rate_current_hz"
+    else:
+        raise KeyError("sensor_type")
+
+    if sampling_rate_key not in metadata:
+        raise KeyError(sampling_rate_key)
+
+    sampling_rate = float(metadata[sampling_rate_key])
+    channel_signal = sample_array[:, channel_index]
+    time_axis = np.arange(channel_signal.shape[0], dtype=float) / sampling_rate
+    spectrum = compute_fft_spectrum(
+        channel_signal,
+        sampling_rate=sampling_rate,
+        nperseg=nperseg,
+        normalize=normalize,
+    )
+
+    return {
+        "channel_signal": channel_signal,
+        "time_axis": time_axis,
+        "sampling_rate": sampling_rate,
+        "spectrum": spectrum,
+    }
+
+
 def compute_fft_spectrum(signal: np.ndarray, 
                         sampling_rate: float,
                         nperseg: Optional[int] = None,
