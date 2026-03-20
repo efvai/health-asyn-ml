@@ -36,15 +36,6 @@ from . import analysis
 from . import signal_processing
 from .signal_processing import compute_fft_spectrum, find_spectral_peaks
 
-# Import key analysis functions for convenience
-from .analysis import (
-    evaluate_incremental_features_cv,
-    plot_incremental_feature_performance,
-    write_incremental_results_to_excel,
-    extract_features_for_frequency,
-    run_comprehensive_frequency_analysis
-)
-
 __all__ = [
     'data_io',
     'analysis',
@@ -62,11 +53,6 @@ __all__ = [
     'HilbertEnvelopeFeatures',
     'extract_features_for_ml',
     'extract_categorical_features',
-    'evaluate_incremental_features_cv',
-    'plot_incremental_feature_performance',
-    'write_incremental_results_to_excel',
-    'extract_features_for_frequency',
-    'run_comprehensive_frequency_analysis',
     'HilbertEnvelopeAnalyzer',
     'EnvelopeConfig',
     'compute_fft_spectrum',

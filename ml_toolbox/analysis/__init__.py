@@ -7,27 +7,6 @@ This module provides comprehensive analysis tools for:
 - Multi-frequency comparison and analysis
 """
 
-# Import feature analysis utilities
-from .feature_analysis import (
-    extract_features_for_frequency,
-    get_feature_importance_cv,
-    analyze_feature_importance,
-    plot_permuted_importance_comparison,
-    plot_mdi_importance_comparison,
-    compare_top_features_across_frequencies
-)
-
-# Import cross-validation analysis utilities
-from .cv_analysis import (
-    plot_cv_scores_by_fold,
-    plot_cv_results_comparison,
-    create_performance_summary,
-    run_comprehensive_frequency_analysis,
-    evaluate_incremental_features_cv,
-    plot_incremental_feature_performance,
-    write_incremental_results_to_excel
-)
-
 from .model_evaluation import (evaluate_model_cv, cv_shap)
 from .class_separability import (
     compute_cohens_d,
@@ -37,23 +16,6 @@ from .class_separability import (
 )
 
 __all__ = [
-    # Feature analysis
-    'extract_features_for_frequency',
-    'get_feature_importance_cv',
-    'analyze_feature_importance',
-    'plot_permuted_importance_comparison',
-    'plot_mdi_importance_comparison',
-    'compare_top_features_across_frequencies',
-    
-    # CV analysis
-    'plot_cv_scores_by_fold',
-    'plot_cv_results_comparison',
-    'create_performance_summary',
-    'run_comprehensive_frequency_analysis',
-    'evaluate_incremental_features_cv',
-    'plot_incremental_feature_performance',
-    'write_incremental_results_to_excel',
-
     'evaluate_model_cv',
     'cv_shap',
 
