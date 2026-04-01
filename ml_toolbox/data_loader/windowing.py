@@ -279,7 +279,8 @@ def create_windows_for_ml(data_list: List[np.ndarray],
                          overlap_ratio: float = 0.5,
                          max_windows_per_class: Optional[int] = None,
                          *,
-                         shuffle: bool = True) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
+                         shuffle: bool = True,
+                         random_state: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
     """
     Convenience function to create windows ready for ML training.
     
@@ -290,6 +291,7 @@ def create_windows_for_ml(data_list: List[np.ndarray],
         overlap_ratio: Overlap between consecutive windows
         max_windows_per_class: Maximum windows per class
         shuffle: Whether to shuffle the balanced window set
+        random_state: Optional RNG seed for deterministic class balancing/shuffling
         
     Returns:
         Tuple of (X, y, window_metadata)
@@ -313,6 +315,7 @@ def create_windows_for_ml(data_list: List[np.ndarray],
         metadata_list,
         target_key='class',
         max_windows_per_class=max_windows_per_class,
+        random_state=random_state,
         shuffle=shuffle
     )
     

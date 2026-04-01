@@ -40,6 +40,31 @@ def _build_pipeline() -> Pipeline:
     )
 
 
+def _build_grouped_data() -> tuple[np.ndarray, np.ndarray, np.ndarray, list[dict]]:
+    rng = np.random.RandomState(42)
+    n_groups = 30
+    samples_per_group = 3
+    n_samples = n_groups * samples_per_group
+    n_features = 8
+
+    groups = np.repeat(np.arange(n_groups), samples_per_group)
+    labels = (groups % 2).astype(np.int64)
+
+    features = rng.normal(0.0, 1.0, size=(n_samples, n_features))
+    features[:, 0] += labels * 1.5
+    features[:, 1] += groups * 0.01
+
+    win_metadata = [
+        {
+            "sample_id": f"{int(group):04d}",
+            "path": f"{int(group):04d}/sensor_a.dat",
+        }
+        for group in groups
+    ]
+
+    return features.astype(np.float64), labels, groups, win_metadata
+
+
 def _shap_to_array(shap_values) -> np.ndarray:
     if isinstance(shap_values, list):
         return np.stack([np.asarray(v) for v in shap_values], axis=0)
@@ -133,4 +158,99 @@ def test_parallel_validation_rejects_invalid_n_jobs() -> None:
             cv_folds=3,
             parallel=True,
             n_jobs=0,
+        )
+
+
+def test_evaluate_model_cv_grouped_parallel_matches_serial() -> None:
+    features, labels, groups, _ = _build_grouped_data()
+
+    serial = evaluate_model_cv(
+        _build_pipeline(),
+        features,
+        labels,
+        cv_folds=3,
+        parallel=False,
+        groups=groups,
+    )
+    parallel = evaluate_model_cv(
+        _build_pipeline(),
+        features,
+        labels,
+        cv_folds=3,
+        parallel=True,
+        n_jobs=2,
+        groups=groups,
+    )
+
+    assert np.allclose(serial["cv_scores"], parallel["cv_scores"])
+    assert np.array_equal(serial["confusion_matrix"], parallel["confusion_matrix"])
+    assert serial["accuracy"] == pytest.approx(parallel["accuracy"])
+
+
+def test_cv_shap_grouped_splits_keep_groups_disjoint() -> None:
+    features, labels, groups, _ = _build_grouped_data()
+
+    shap_result = cv_shap(
+        _build_pipeline(),
+        features,
+        labels,
+        cv_folds=3,
+        parallel=False,
+        groups=groups,
+    )
+
+    for fold in shap_result["shap_values_per_fold"]:
+        train_groups = set(groups[np.asarray(fold["train_idx"])].tolist())
+        val_groups = set(groups[np.asarray(fold["val_idx"])].tolist())
+        assert train_groups.isdisjoint(val_groups)
+
+
+def test_evaluate_model_cv_can_derive_groups_from_win_metadata() -> None:
+    features, labels, _groups, win_metadata = _build_grouped_data()
+
+    result = evaluate_model_cv(
+        _build_pipeline(),
+        features,
+        labels,
+        cv_folds=3,
+        parallel=False,
+        win_metadata=win_metadata,
+        group_by="sample_id",
+    )
+
+    assert result["n_samples"] == features.shape[0]
+
+
+def test_grouped_cv_validation_errors() -> None:
+    features, labels, groups, win_metadata = _build_grouped_data()
+
+    with pytest.raises(ValueError, match="group_by must be 'sample_id' or 'path'"):
+        evaluate_model_cv(
+            _build_pipeline(),
+            features,
+            labels,
+            cv_folds=3,
+            win_metadata=win_metadata,
+            group_by="filename",
+        )
+
+    broken_meta = [dict(m) for m in win_metadata]
+    broken_meta[0].pop("sample_id", None)
+    with pytest.raises(ValueError, match="missing 'sample_id'"):
+        evaluate_model_cv(
+            _build_pipeline(),
+            features,
+            labels,
+            cv_folds=3,
+            win_metadata=broken_meta,
+            group_by="sample_id",
+        )
+
+    with pytest.raises(ValueError, match="at least cv_folds unique groups"):
+        evaluate_model_cv(
+            _build_pipeline(),
+            features,
+            labels,
+            cv_folds=3,
+            groups=np.zeros_like(groups),
         )

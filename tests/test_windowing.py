@@ -60,16 +60,60 @@ def test_create_windows_for_ml_rejects_removed_condition_map_argument():
         )
 
 
-def test_create_windows_for_ml_rejects_removed_random_state_argument():
+def test_create_windows_for_ml_random_state_makes_balancing_deterministic():
     data_list, metadata_list = _make_dataset()
 
-    with pytest.raises(TypeError):
-        create_windows_for_ml(
-            data_list,
-            metadata_list,
-            window_size=10,
-            random_state=42,
-        )
+    windows_1, labels_1, meta_1 = create_windows_for_ml(
+        data_list,
+        metadata_list,
+        window_size=10,
+        overlap_ratio=0.5,
+        max_windows_per_class=2,
+        shuffle=False,
+        random_state=42,
+    )
+
+    windows_2, labels_2, meta_2 = create_windows_for_ml(
+        data_list,
+        metadata_list,
+        window_size=10,
+        overlap_ratio=0.5,
+        max_windows_per_class=2,
+        shuffle=False,
+        random_state=42,
+    )
+
+    assert np.array_equal(windows_1, windows_2)
+    assert np.array_equal(labels_1, labels_2)
+    assert meta_1 == meta_2
+
+
+def test_create_windows_for_ml_random_state_makes_shuffle_deterministic():
+    data_list, metadata_list = _make_dataset()
+
+    windows_1, labels_1, meta_1 = create_windows_for_ml(
+        data_list,
+        metadata_list,
+        window_size=10,
+        overlap_ratio=0.5,
+        max_windows_per_class=2,
+        shuffle=True,
+        random_state=7,
+    )
+
+    windows_2, labels_2, meta_2 = create_windows_for_ml(
+        data_list,
+        metadata_list,
+        window_size=10,
+        overlap_ratio=0.5,
+        max_windows_per_class=2,
+        shuffle=True,
+        random_state=7,
+    )
+
+    assert np.array_equal(windows_1, windows_2)
+    assert np.array_equal(labels_1, labels_2)
+    assert meta_1 == meta_2
 
 
 def test_create_label_to_class_map_matches_window_labels():

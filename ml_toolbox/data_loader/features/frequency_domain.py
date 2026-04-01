@@ -5,6 +5,8 @@ This module provides FFT-based spectral features commonly used
 in motor health monitoring and fault diagnosis.
 """
 
+from statistics import variance
+
 import numpy as np
 from typing import Dict, Tuple
 from scipy.fft import fft, fftfreq
@@ -61,41 +63,20 @@ class FrequencyDomainFeatures:
         #n_positive = len(freqs) // 2
         #fft_magnitude = np.abs(fft_vals[:n_positive])
         #fft_freqs = freqs[:n_positive]
-        
-        # Normalize FFT magnitude
-        total_energy = np.sum(fft_magnitude**2)
-        if total_energy > 1e-12:
-            # Normalize by total spectral energy
-            fft_magnitude_normalized = fft_magnitude / np.sqrt(total_energy)
-        else:
-            fft_magnitude_normalized = fft_magnitude
-                
+                 
         # Spectral features
-        features['spectral_centroid'] = np.sum(fft_freqs * fft_magnitude_normalized) / (np.sum(fft_magnitude_normalized) + 1e-12)
-        features['spectral_spread'] = np.sqrt(np.sum((fft_freqs - features['spectral_centroid'])**2 * fft_magnitude_normalized) / (np.sum(fft_magnitude_normalized) + 1e-12))
+        features['spectral_centroid'] = np.sum(fft_freqs * fft_magnitude) / np.sum(fft_magnitude)
+        variance = np.sum(((fft_freqs - features['spectral_centroid'])**2) * fft_magnitude) / np.sum(fft_magnitude)
+        features['spectral_spread'] = np.sqrt(variance)
         
         # Spectral energy
         features['spectral_rolloff'] = FrequencyDomainFeatures._spectral_rolloff(fft_magnitude, fft_freqs, 0.85)
-        features['spectral_energy'] = np.sum(fft_magnitude**2)
+        #features['spectral_energy'] = np.sum(fft_magnitude**2)
         
         # Spectral entropy - measure of spectral complexity/randomness
-        power_spectrum = fft_magnitude**2
-        power_spectrum_norm = power_spectrum / (np.sum(power_spectrum) + 1e-12)
-        power_spectrum_norm = power_spectrum_norm[power_spectrum_norm > 1e-12]  # Remove near-zeros
-        if len(power_spectrum_norm) > 0:
-            features['spectral_entropy'] = float(-np.sum(power_spectrum_norm * np.log2(power_spectrum_norm + 1e-12)))
-        else:
-            features['spectral_entropy'] = 0.0
-        
-        # Spectral flatness (Wiener entropy) - measure of how noise-like vs tone-like the spectrum is
-        # Ratio of geometric mean to arithmetic mean of power spectrum
-        power_spectrum_positive = power_spectrum[power_spectrum > 1e-12]
-        if len(power_spectrum_positive) > 0:
-            geometric_mean = np.exp(np.mean(np.log(power_spectrum_positive + 1e-12)))
-            arithmetic_mean = np.mean(power_spectrum_positive)
-            features['spectral_flatness'] = float(geometric_mean / (arithmetic_mean + 1e-12))
-        else:
-            features['spectral_flatness'] = 0.0
+        from scipy.stats import entropy
+        se_scipy = entropy(fft_magnitude + 1e-12, base=2)
+        features['spectral_entropy'] = float(se_scipy) / np.log2(len(fft_magnitude)) 
         
         return features, fft_magnitude, fft_freqs
     

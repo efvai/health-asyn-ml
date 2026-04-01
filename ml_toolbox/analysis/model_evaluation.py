@@ -12,7 +12,7 @@ from concurrent.futures import ProcessPoolExecutor
 import os
 
 from sklearn.base import clone
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, StratifiedGroupKFold
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, confusion_matrix
 
 
@@ -25,6 +25,79 @@ def _resolve_n_jobs(cv_folds: int, n_jobs: int | None) -> int:
     if not isinstance(n_jobs, int) or n_jobs < 1:
         raise ValueError(f"n_jobs must be a positive integer or None, got {n_jobs!r}.")
     return n_jobs
+
+
+def _resolve_groups(
+    labels: np.ndarray,
+    groups: np.ndarray | None,
+    win_metadata: List[dict] | None,
+    group_by: str,
+) -> np.ndarray | None:
+    if groups is not None:
+        groups_arr = np.asarray(groups)
+        if groups_arr.ndim != 1:
+            raise ValueError(f"groups must be 1D, got shape {groups_arr.shape}.")
+        if groups_arr.shape[0] != labels.shape[0]:
+            raise ValueError(
+                f"groups length ({groups_arr.shape[0]}) must match labels length ({labels.shape[0]})."
+            )
+        return groups_arr
+
+    if win_metadata is None:
+        return None
+
+    if group_by not in {"sample_id", "path"}:
+        raise ValueError(
+            f"group_by must be 'sample_id' or 'path', got {group_by!r}."
+        )
+
+    if len(win_metadata) != labels.shape[0]:
+        raise ValueError(
+            f"win_metadata length ({len(win_metadata)}) must match labels length ({labels.shape[0]})."
+        )
+
+    resolved_groups: List[str] = []
+    for idx, meta in enumerate(win_metadata):
+        if not isinstance(meta, dict):
+            raise ValueError(
+                f"win_metadata[{idx}] must be a dict, got {type(meta).__name__}."
+            )
+
+        if group_by == "sample_id":
+            group_value = meta.get("sample_id")
+            if group_value is None:
+                raise ValueError(
+                    f"win_metadata[{idx}] missing 'sample_id' required for grouped CV."
+                )
+        else:
+            group_value = meta.get("path", meta.get("absolute_path"))
+            if group_value is None:
+                raise ValueError(
+                    f"win_metadata[{idx}] missing 'path'/'absolute_path' required for grouped CV."
+                )
+
+        resolved_groups.append(str(group_value))
+
+    return np.asarray(resolved_groups, dtype=object)
+
+
+def _build_fold_splits(
+    features: np.ndarray,
+    labels: np.ndarray,
+    cv_folds: int,
+    groups: np.ndarray | None,
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    if groups is not None:
+        n_unique_groups = np.unique(groups).size
+        if n_unique_groups < cv_folds:
+            raise ValueError(
+                f"Grouped CV requires at least cv_folds unique groups, got {n_unique_groups} groups for cv_folds={cv_folds}."
+            )
+        cv = StratifiedGroupKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        return list(cv.split(features, labels, groups))
+
+    cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+    return list(cv.split(features, labels))
 
 
 def _run_cv_fold(
@@ -99,6 +172,9 @@ def evaluate_model_cv(
     cv_folds: int = 5,
     parallel: bool = False,
     n_jobs: int | None = None,
+    groups: np.ndarray | None = None,
+    win_metadata: List[dict] | None = None,
+    group_by: str = "sample_id",
 ) -> Dict[str, Any]:
     """
     Evaluate model performance using cross-validation (standalone).
@@ -121,6 +197,9 @@ def evaluate_model_cv(
         cv_folds=cv_folds,
         parallel=parallel,
         n_jobs=n_jobs,
+        groups=groups,
+        win_metadata=win_metadata,
+        group_by=group_by,
     )
     cv_predictions = cv_data["cv_predictions"]
     cv_scores = cv_data["cv_scores"]
@@ -206,6 +285,9 @@ def cross_validate_with_models(
     cv_folds: int = 5,
     parallel: bool = False,
     n_jobs: int | None = None,
+    groups: np.ndarray | None = None,
+    win_metadata: List[dict] | None = None,
+    group_by: str = "sample_id",
 ):
     """
     Perform cross-validation manually and return:
@@ -213,14 +295,24 @@ def cross_validate_with_models(
     - cv_predictions (OOF predictions)
     - estimators = [(model, val_indices), ...] for each fold
     """
-    cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+    resolved_groups = _resolve_groups(
+        labels=labels,
+        groups=groups,
+        win_metadata=win_metadata,
+        group_by=group_by,
+    )
     n = len(labels)
 
     cv_predictions = np.empty(n, dtype=labels.dtype)
     cv_scores = []
     estimators = []
 
-    fold_splits: List[Tuple[np.ndarray, np.ndarray]] = list(cv.split(features, labels))
+    fold_splits = _build_fold_splits(
+        features=features,
+        labels=labels,
+        cv_folds=cv_folds,
+        groups=resolved_groups,
+    )
 
     if parallel and len(fold_splits) > 1:
         workers = _resolve_n_jobs(cv_folds=cv_folds, n_jobs=n_jobs)
@@ -269,13 +361,26 @@ def cv_shap(
     cv_folds: int = 5,
     parallel: bool = False,
     n_jobs: int | None = None,
+    groups: np.ndarray | None = None,
+    win_metadata: List[dict] | None = None,
+    group_by: str = "sample_id",
 ):
-    cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+    resolved_groups = _resolve_groups(
+        labels=labels,
+        groups=groups,
+        win_metadata=win_metadata,
+        group_by=group_by,
+    )
 
     shap_per_fold = []
     estimators = []
 
-    fold_splits: List[Tuple[np.ndarray, np.ndarray]] = list(cv.split(features, labels))
+    fold_splits = _build_fold_splits(
+        features=features,
+        labels=labels,
+        cv_folds=cv_folds,
+        groups=resolved_groups,
+    )
 
     if parallel and len(fold_splits) > 1:
         workers = _resolve_n_jobs(cv_folds=cv_folds, n_jobs=n_jobs)

@@ -63,7 +63,7 @@ class DatasetManager:
                 dataset_index["electrical_frequencies_hz"].add(electrical_freq)
 
             found_sensor_file = False
-            for file_path in sample_dir.iterdir():
+            for file_path in sorted(sample_dir.iterdir()):
                 if not file_path.is_file():
                     continue
                 if file_path.name.lower() == "meta.json":

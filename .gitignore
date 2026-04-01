@@ -141,6 +141,9 @@ data_set_4/
 !data_set/metadata/
 !data_set_2/metadata/
 
+# Models
+history/
+
 # TensorFlow
 *.tfrecord
 *.tfevents
@@ -173,6 +176,7 @@ reports/
 *.jpeg
 *.svg
 *.eps
+*.tiff
 !README_figures/
 
 # Temporary files

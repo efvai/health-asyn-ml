@@ -415,7 +415,8 @@ def extract_categorical_features(metadata_list: List[Dict]) -> Tuple[np.ndarray,
 def extract_features_for_ml(windows: np.ndarray, 
                            sensor_type: str,
                            feature_config: Optional[FeatureConfig] = None,
-                           metadata_list: Optional[List[Dict]] = None) -> tuple:
+                           metadata_list: Optional[List[Dict]] = None,
+                           include_categorical: bool = True) -> tuple:
     """
     Convenience function to extract features ready for ML.
     
@@ -458,7 +459,7 @@ def extract_features_for_ml(windows: np.ndarray,
     )
     
     # Extract categorical features from metadata if provided
-    if metadata_list is not None:
+    if metadata_list is not None and include_categorical:
         categorical_features, categorical_feature_names = extract_categorical_features(metadata_list)
         
         # Combine signal and categorical features
