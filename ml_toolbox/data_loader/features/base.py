@@ -32,16 +32,7 @@ def _default_family_config() -> Dict[str, FeatureFamilyConfig]:
                 "expected_carrier": ENV_CARRIER_FREQUENCY,
                 "carrier_bandwidth": 50.0,
             },
-        ),
-        "cross_channel": FeatureFamilyConfig(
-            enabled=True,
-            params={
-                "pairs": None,
-                "time_domain": True,
-                "frequency_domain": False,
-                "hilbert_envelope": True,
-            },
-        ),
+        )
     }
 
 
@@ -71,7 +62,6 @@ class FeatureConfig:
                     "enabled": True,
                     "params": {"expected_carrier": ENV_CARRIER_FREQUENCY},
                 },
-                "cross_channel": {"enabled": True},
             },
         },
         "vibration": {
@@ -83,7 +73,6 @@ class FeatureConfig:
                     "params": {"window_type": "hann"},
                 },
                 "hilbert_envelope": {"enabled": False},
-                "cross_channel": {"enabled": False},
             },
         },
     }
@@ -186,14 +175,6 @@ class FeatureConfig:
     @hilbert_envelope.setter
     def hilbert_envelope(self, value: bool) -> None:
         self.set_family("hilbert_envelope", enabled=value)
-
-    @property
-    def cross_channel(self) -> bool:
-        return self.is_enabled("cross_channel")
-
-    @cross_channel.setter
-    def cross_channel(self, value: bool) -> None:
-        self.set_family("cross_channel", enabled=value)
 
     # -- sensor profiles ----------------------------------------------------------------------
     def apply_sensor_profile(self, sensor_type: str, *, override: bool = False) -> None:

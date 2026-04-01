@@ -9,8 +9,7 @@ This module now uses modular feature extraction classes for better organization 
 """
 
 import numpy as np
-from itertools import combinations
-from typing import Any, Dict, List, Optional, Union, Callable, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import logging
 
 
@@ -165,51 +164,7 @@ class FeatureExtractor:
             )
             all_features.update(ch_features)
         
-        # Cross-channel features: iterate channel pairs once and call
-        # enabled cross-channel extractors conditionally to avoid repetition.
-        if self.config.cross_channel and len(channel_indices) > 1:
-            cross_params = self.config.get_params("cross_channel")
-            requested_pairs = cross_params.get("pairs") if isinstance(cross_params, dict) else None
-
-            cross_time_enabled = True
-            cross_env_enabled = True
-
-            if isinstance(cross_params, dict):
-                cross_time_enabled = cross_params.get("time_domain", self.config.time_domain)
-                cross_env_enabled = cross_params.get(
-                    "hilbert_envelope", self.config.hilbert_envelope
-                )
-
-            pair_indices = self._resolve_channel_pairs(
-                requested_pairs,
-                channel_indices,
-                channel_names,
-            )
-
-            for i_idx, j_idx in pair_indices:
-                ch1_name = channel_names[i_idx]
-                ch2_name = channel_names[j_idx]
-                ch1_signal = signal[:, i_idx]
-                ch2_signal = signal[:, j_idx]
-
-                if cross_time_enabled and self.config.time_domain:
-                    cc_feats = self.time_domain.cross_correlation_features(
-                        ch1_signal, ch2_signal, ch1_name, ch2_name
-                    )
-                    all_features.update(cc_feats)
-
-                if cross_env_enabled and self.config.hilbert_envelope:
-                    env_cross_features = self.hilbert_envelope.hilbert_envelope_cross_features(
-                        ch1_signal,
-                        ch2_signal,
-                        ch1_name,
-                        ch2_name,
-                    )
-                    all_features.update(env_cross_features)
-        
         return all_features
-    
-    # NOTE: cross-channel features are now provided by `TimeDomainFeatures.cross_correlation_features`
     
     def extract_features_batch(
         self,
@@ -285,53 +240,6 @@ class FeatureExtractor:
             feature_matrix[i, :] = feature_values
             
         return feature_matrix, feature_names
-
-    @staticmethod
-    def _resolve_channel_pairs(
-        requested_pairs,
-        default_indices: List[int],
-        channel_names: List[str],
-    ) -> List[Tuple[int, int]]:
-        """Resolve channel pair definitions to index tuples."""
-
-        if not requested_pairs:
-            return list(combinations(default_indices, 2))
-
-        name_to_index = {name: idx for idx, name in enumerate(channel_names)}
-        resolved: List[Tuple[int, int]] = []
-        seen = set()
-
-        for pair in requested_pairs:
-            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
-                continue
-            first, second = pair
-
-            if isinstance(first, str):
-                idx_a = name_to_index.get(first)
-            elif isinstance(first, int):
-                idx_a = first
-            else:
-                idx_a = None
-
-            if isinstance(second, str):
-                idx_b = name_to_index.get(second)
-            elif isinstance(second, int):
-                idx_b = second
-            else:
-                idx_b = None
-
-            if idx_a is None or idx_b is None or idx_a == idx_b:
-                continue
-
-            pair_key: Tuple[int, int] = (min(idx_a, idx_b), max(idx_a, idx_b))
-            if pair_key in seen:
-                continue
-
-            seen.add(pair_key)
-            resolved.append(pair_key)
-
-        return resolved if resolved else list(combinations(default_indices, 2))
-
 
 def extract_categorical_features(metadata_list: List[Dict]) -> Tuple[np.ndarray, List[str]]:
     """

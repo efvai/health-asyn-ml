@@ -259,42 +259,6 @@ class FrequencyDomainFeatures:
         return features
     
     @staticmethod
-    def cross_spectral_features(spectrum1: Dict, spectrum2: Dict, 
-                              ch1_name: str = "ch1", ch2_name: str = "ch2") -> Dict[str, float]:
-        """
-        Extract cross-spectral features between two spectra.
-        
-        Args:
-            spectrum1: First spectrum dictionary with 'freqs' and 'magnitude'
-            spectrum2: Second spectrum dictionary with 'freqs' and 'magnitude'
-            ch1_name: Name of first channel
-            ch2_name: Name of second channel
-            
-        Returns:
-            Dictionary of cross-spectral features
-        """
-        features = {}
-        
-        # Spectral correlation
-        min_len = min(len(spectrum1['magnitude']), len(spectrum2['magnitude']))
-        if min_len > 1:
-            corr_coef = np.corrcoef(spectrum1['magnitude'][:min_len], spectrum2['magnitude'][:min_len])[0, 1]
-            features[f"{ch1_name}_{ch2_name}_spectral_corr"] = float(corr_coef) if not np.isnan(corr_coef) else 0.0
-        else:
-            features[f"{ch1_name}_{ch2_name}_spectral_corr"] = 0.0
-        
-        # Energy comparison
-        total_energy1 = np.sum(spectrum1['magnitude']**2)
-        total_energy2 = np.sum(spectrum2['magnitude']**2)
-        features[f"{ch1_name}_{ch2_name}_energy_ratio"] = float(total_energy1 / (total_energy2 + 1e-12))
-        
-        # Energy imbalance
-        energy_imbalance = abs(total_energy1 - total_energy2) / (total_energy1 + total_energy2 + 1e-12)
-        features[f"{ch1_name}_{ch2_name}_energy_imbalance"] = float(energy_imbalance)
-        
-        return features
-    
-    @staticmethod
     def peak_magnitude_comparison(peaks1: Dict, peaks2: Dict, 
                                 ch1_name: str = "ch1", ch2_name: str = "ch2") -> Dict[str, float]:
         """
