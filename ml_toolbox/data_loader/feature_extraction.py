@@ -241,90 +241,10 @@ class FeatureExtractor:
             
         return feature_matrix, feature_names
 
-def extract_categorical_features(metadata_list: List[Dict]) -> Tuple[np.ndarray, List[str]]:
-    """
-    Extract metadata-derived contextual features for ML.
-    
-    Args:
-        metadata_list: List of metadata dictionaries
-        
-    Returns:
-        Tuple of (categorical_features, feature_names)
-    """
-    if not metadata_list:
-        return np.array([]).reshape(0, 0), []
-    
-    n_windows = len(metadata_list)
-    categorical_features = []
-    feature_names = []
-    
-    # Numeric metadata contract:
-    # - electrical_frequency_hz: float/int
-    # - load: float/int (continuous value)
-    freq_values: List[float] = []
-    load_values: List[float] = []
-
-    for i, meta in enumerate(metadata_list):
-        if 'electrical_frequency_hz' not in meta:
-            raise ValueError(
-                f"metadata_list[{i}] missing required key 'electrical_frequency_hz'"
-            )
-        if 'load' not in meta:
-            raise ValueError(f"metadata_list[{i}] missing required key 'load'")
-
-        freq_raw = meta.get('electrical_frequency_hz')
-        load_raw = meta.get('load')
-
-        try:
-            freq_val = float(freq_raw)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"metadata_list[{i}]['electrical_frequency_hz'] must be numeric, got {freq_raw!r}"
-            ) from None
-
-        try:
-            load_val = float(load_raw)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"metadata_list[{i}]['load'] must be numeric, got {load_raw!r}"
-            ) from None
-
-        freq_values.append(freq_val)
-        load_values.append(load_val)
-
-    categorical_features.append(freq_values)
-    feature_names.append('frequency_hz')
-
-    categorical_features.append(load_values)
-    feature_names.append('load')
-    
-    # Extract sensor type features if available
-    sensor_types = set()
-    for meta in metadata_list:
-        sensor = meta.get('sensor_type', 'unknown')
-        sensor_types.add(sensor)
-    
-    if len(sensor_types) > 1:  # Only add if there are multiple sensor types
-        sensor_types = sorted(list(sensor_types))
-        for sensor in sensor_types:
-            sensor_feature = [1 if meta.get('sensor_type') == sensor else 0 for meta in metadata_list]
-            categorical_features.append(sensor_feature)
-            feature_names.append(f'sensor_{sensor}')
-    
-    # Convert to numpy array
-    if categorical_features:
-        categorical_matrix = np.array(categorical_features, dtype=float).T
-    else:
-        categorical_matrix = np.array([]).reshape(n_windows, 0)
-    
-    return categorical_matrix, feature_names
-
-
 def extract_features_for_ml(windows: np.ndarray, 
                            sensor_type: str,
                            feature_config: Optional[FeatureConfig] = None,
-                           metadata_list: Optional[List[Dict]] = None,
-                           include_categorical: bool = True) -> tuple:
+                           metadata_list: Optional[List[Dict]] = None) -> tuple:
     """
     Convenience function to extract features ready for ML.
     
@@ -366,19 +286,4 @@ def extract_features_for_ml(windows: np.ndarray,
         sampling_rates=sampling_rates,
     )
     
-    # Extract categorical features from metadata if provided
-    if metadata_list is not None and include_categorical:
-        categorical_features, categorical_feature_names = extract_categorical_features(metadata_list)
-        
-        # Combine signal and categorical features
-        if categorical_features.size > 0:
-            feature_matrix = np.hstack([signal_features, categorical_features])
-            feature_names = signal_feature_names + categorical_feature_names
-        else:
-            feature_matrix = signal_features
-            feature_names = signal_feature_names
-    else:
-        feature_matrix = signal_features
-        feature_names = signal_feature_names
-    
-    return feature_matrix, feature_names
+    return signal_features, signal_feature_names
