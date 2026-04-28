@@ -1,7 +1,11 @@
 import numpy as np
 import pytest
 
-from ml_toolbox.data_loader.windowing import create_windows_for_ml, create_label_to_class_map
+from ml_toolbox.data_loader.windowing import (
+    WindowConfig,
+    create_label_to_class_map,
+    create_windows_for_ml,
+)
 
 
 def _make_dataset():
@@ -132,3 +136,8 @@ def test_create_label_to_class_map_matches_window_labels():
 
     for meta, label in zip(win_metadata, labels):
         assert label_to_class[int(label)] == meta["class"]
+
+
+def test_window_config_rejects_removed_padding_argument():
+    with pytest.raises(TypeError):
+        WindowConfig(window_size=10, step_size=5, padding=True)

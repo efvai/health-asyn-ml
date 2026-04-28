@@ -38,7 +38,6 @@ class WindowConfig:
     window_size: int
     step_size: int
     overlap_ratio: Optional[float] = None
-    padding: bool = False
     min_window_size: Optional[int] = None
     
     def __post_init__(self):
@@ -113,18 +112,7 @@ class WindowExtractor:
         if not windows:
             logger.warning(f"No windows extracted from data with {n_samples} samples")
             return np.array([]), []
-        
-        # Handle padding if requested and last window is smaller
-        if self.config.padding and windows:
-            last_window = windows[-1]
-            if last_window.shape[0] < self.config.window_size:
-                # Pad with zeros
-                padding_size = self.config.window_size - last_window.shape[0]
-                padding = np.zeros((padding_size, n_channels))
-                windows[-1] = np.vstack([last_window, padding])
-                window_metadata[-1]['padded'] = True
-                window_metadata[-1]['padding_size'] = padding_size
-        
+
         return np.array(windows), window_metadata
     
     def extract_windows_batch(self, 

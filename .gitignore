@@ -276,3 +276,5 @@ checkpoints/
 # todo.txt
 healthy
 data_set_3
+data_set_6
+*.xlsx

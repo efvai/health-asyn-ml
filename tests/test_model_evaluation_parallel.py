@@ -205,6 +205,50 @@ def test_cv_shap_grouped_splits_keep_groups_disjoint() -> None:
         assert train_groups.isdisjoint(val_groups)
 
 
+def test_cv_shap_uses_tree_path_dependent_tree_explainer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    features, labels = _build_data()
+    calls: dict[str, object] = {}
+
+    class DummyTreeExplainer:
+        def __init__(self, model, *args, **kwargs):
+            calls["kwargs"] = dict(kwargs)
+            calls.setdefault("init_calls", 0)
+            calls["init_calls"] = int(calls["init_calls"]) + 1
+            self.expected_value = np.array([0.5, 0.5], dtype=np.float64)
+
+        def shap_values(self, X, check_additivity=True):
+            calls.setdefault("check_additivity", [])
+            calls["check_additivity"].append(bool(check_additivity))
+            n_samples, n_features = np.asarray(X).shape
+            return np.zeros((n_samples, n_features, 2), dtype=np.float64)
+
+    monkeypatch.setattr(
+        "ml_toolbox.analysis.model_evaluation.shap.TreeExplainer",
+        DummyTreeExplainer,
+    )
+
+    result = cv_shap(
+        _build_pipeline(),
+        features,
+        labels,
+        cv_folds=3,
+        parallel=False,
+    )
+
+    assert len(result["shap_values_per_fold"]) == 3
+
+    explainer_kwargs = calls["kwargs"]
+    assert "data" not in explainer_kwargs
+    assert explainer_kwargs.get("feature_perturbation") == "tree_path_dependent"
+    assert explainer_kwargs.get("model_output") == "raw"
+
+    check_additivity_calls = calls["check_additivity"]
+    assert len(check_additivity_calls) == 3
+    assert all(check_additivity_calls)
+
+
 def test_evaluate_model_cv_can_derive_groups_from_win_metadata() -> None:
     features, labels, _groups, win_metadata = _build_grouped_data()
 

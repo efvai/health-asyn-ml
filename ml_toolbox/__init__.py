@@ -19,7 +19,7 @@ from .data_loader.windowing import (
 
 # Import feature extraction utilities
 from .data_loader.feature_extraction import (
-    FeatureExtractor, extract_features_for_ml, extract_categorical_features
+    FeatureExtractor, extract_features_for_ml
 )
 from .data_loader.features import (
     FeatureConfig, TimeDomainFeatures, FrequencyDomainFeatures, HilbertEnvelopeFeatures

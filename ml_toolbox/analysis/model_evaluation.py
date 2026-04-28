@@ -150,10 +150,24 @@ def _run_cv_shap_fold(
     scaler = est.named_steps["scaler"]
     model = est.named_steps["rf"]
 
-    X_train_scaled = scaler.transform(X_train)
     X_val_scaled = scaler.transform(X_val)
 
-    explainer = shap.TreeExplainer(model, data=X_train_scaled)
+    # Use tree-path-dependent mode for exact tree-model additivity.
+    # Passing a background matrix can trigger interventional estimates that
+    # intermittently fail strict additivity checks for RF classifiers.
+    try:
+        explainer = shap.TreeExplainer(
+            model,
+            feature_perturbation="tree_path_dependent",
+            model_output="raw",
+        )
+    except TypeError:
+        # Backward compatibility for older SHAP versions.
+        explainer = shap.TreeExplainer(
+            model,
+            feature_perturbation="tree_path_dependent",
+        )
+
     shap_vals = explainer.shap_values(X_val_scaled)
 
     return {
