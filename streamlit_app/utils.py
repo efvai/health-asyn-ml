@@ -294,6 +294,9 @@ class GDriveCache:
     """
 
     MANIFEST_FILENAME = "_gdrive_manifest.json"
+    # Class-level throttle: minimum seconds between gdown calls to avoid rate limiting
+    _MIN_DOWNLOAD_INTERVAL: float = 1.5
+    _last_download_time: float = 0.0
 
     def __init__(self, cache_dir: Path):
         self.cache_dir = Path(cache_dir)
@@ -382,9 +385,17 @@ class GDriveCache:
 
         return len(meta_keys)
 
-    def ensure_file(self, rel_path: str) -> Path:
-        """Download file if missing or empty stub.  Returns local path."""
-        import gdown
+    def ensure_file(self, rel_path: str, max_retries: int = 3) -> Path:
+        """Download file if missing or empty stub.  Returns local path.
+
+        Retries up to *max_retries* times with exponential back-off to handle
+        transient Google Drive rate-limiting.  On total failure raises
+        ``RuntimeError`` with a human-readable message and the direct browser
+        URL so the file can be fetched manually.
+        """
+        import time
+        from gdown.download import download as _gdown_dl
+        from gdown.exceptions import FileURLRetrievalError as _GDownURLError
 
         local = self.cache_dir / rel_path
         if local.exists() and local.stat().st_size > 0:
@@ -405,9 +416,43 @@ class GDriveCache:
             )
 
         local.parent.mkdir(parents=True, exist_ok=True)
-        from gdown.download import download as _gdown_dl
-        _gdown_dl(id=file_id, output=str(local), quiet=True)
-        return local
+        browser_url = f"https://drive.google.com/uc?id={file_id}"
+        last_exc: Exception = RuntimeError("no attempts made")
+        for attempt in range(max_retries):
+            # Enforce minimum inter-download interval to avoid Google rate limiting
+            now = time.time()
+            wait = GDriveCache._MIN_DOWNLOAD_INTERVAL - (now - GDriveCache._last_download_time)
+            if wait > 0:
+                time.sleep(wait)
+            if attempt > 0:
+                time.sleep(2 ** attempt)  # extra back-off: 2 s, 4 s, …
+            # Alternate cookie usage: cookies off on odd attempts (different session path)
+            use_cookies = (attempt % 2 == 0)
+            try:
+                GDriveCache._last_download_time = time.time()
+                _gdown_dl(id=file_id, output=str(local), quiet=True, use_cookies=use_cookies)
+                # gdown may leave a 0-byte file on failure; verify
+                if local.stat().st_size == 0:
+                    raise _GDownURLError("downloaded file is empty")
+                return local
+            except _GDownURLError as exc:
+                last_exc = exc
+                # Remove empty stub so it can be retried cleanly
+                if local.exists() and local.stat().st_size == 0:
+                    local.unlink()
+
+        raise RuntimeError(
+            f"Google Drive download failed for '{rel_path}' after "
+            f"{max_retries} attempts.\n\n"
+            "Possible causes:\n"
+            "  • The file sharing is not set to 'Anyone with the link' — "
+            "check permissions in Google Drive.\n"
+            "  • Google is rate-limiting gdown (too many recent requests) — "
+            "wait a few minutes and retry.\n\n"
+            f"You can try downloading the file manually from:\n"
+            f"  {browser_url}\n\n"
+            f"Last gdown error: {last_exc}"
+        ) from last_exc
 
     def ensure_absolute(self, abs_path: Path) -> Path:
         """Like ensure_file but accepts an absolute path inside cache_dir."""
