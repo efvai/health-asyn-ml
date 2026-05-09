@@ -121,6 +121,7 @@ def extract_features_lazy(
     feature_config,
     class_to_int: Optional[Dict[str, int]] = None,
     progress_callback=None,
+    dataset_manager=None,
 ) -> Tuple[np.ndarray, np.ndarray, List, List[Dict], Dict]:
     """
     Extract features lazily — one file at a time — to minimise peak RAM.
@@ -185,7 +186,7 @@ def extract_features_lazy(
         feature_config.apply_sensor_profile(sensor_type, override=False)
 
     step_size = max(1, int(window_size * (1 - overlap_ratio)))
-    dm = DatasetManager(dataset_path)
+    dm = dataset_manager if dataset_manager is not None else DatasetManager(dataset_path)
     extractor = FeatureExtractor(feature_config)
 
     all_feature_chunks: List[np.ndarray] = []

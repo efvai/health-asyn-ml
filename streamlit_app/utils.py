@@ -1,5 +1,6 @@
 """Shared helpers for the Streamlit app."""
 
+import json
 import sys
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -101,6 +102,12 @@ def run_lazy_extraction(
         if status_text is not None:
             status_text.text(f"Processing file {done} / {tot}…")
 
+    # For GDrive datasets, use lazy dataset manager so .dat files are downloaded on demand
+    _dm = None
+    if (Path(dataset_path) / GDriveCache.MANIFEST_FILENAME).exists():
+        _cache = GDriveCache(Path(dataset_path))
+        _dm = LazyGDriveDatasetManager(Path(dataset_path), _cache)
+
     return extract_features_lazy(
         dataset_path=Path(dataset_path),
         file_list=file_list,
@@ -113,6 +120,7 @@ def run_lazy_extraction(
         feature_config=feature_config,
         class_to_int=class_to_int,
         progress_callback=_progress,
+        dataset_manager=_dm,
     )
 
 
@@ -159,6 +167,10 @@ def cached_load_single_raw(dataset_path: str, sample_id: str, sensor_type: str):
     ensure_toolbox_on_path()
     from ml_toolbox.data_loader import DataLoader
     loader = DataLoader(Path(dataset_path))
+    # For GDrive datasets, swap in the lazy manager so stubs are downloaded on access
+    if (Path(dataset_path) / GDriveCache.MANIFEST_FILENAME).exists():
+        _cache = GDriveCache(Path(dataset_path))
+        loader.dataset_manager = LazyGDriveDatasetManager(Path(dataset_path), _cache)  # type: ignore[assignment]
     data_list, metadata_list = loader.load_batch(
         sample_ids=[sample_id],
         sensor_types=[sensor_type] if sensor_type else None,
@@ -264,100 +276,215 @@ def correlation_heatmap(features: np.ndarray, feature_names: List[str]) -> plt.F
     return fig
 
 
-# ── Google Drive downloader ───────────────────────────────────────────────────
+# ── Google Drive lazy dataset cache ──────────────────────────────────────────
 
-def download_from_gdrive(url: str, dest_name: str, project_root: Path) -> Path:
-    """Download a dataset from a Google Drive shared link.
+class GDriveCache:
+    """Manifest-based on-demand file cache for a public Google Drive folder.
 
-    Supports:
-    - Shared **folder** links  → downloaded recursively into *dest_name/*
-    - Shared **file** links    → downloaded; ZIP archives are extracted into *dest_name/*
-
-    Returns the local :class:`Path` to the dataset folder.
-
-    Raises
-    ------
-    ImportError
-        If ``gdown`` is not installed.
-    ValueError
-        If the URL is not recognised or the downloaded file is not a ZIP.
-    RuntimeError
-        If gdown downloaded nothing.
+    Workflow
+    --------
+    1. ``build_manifest(folder_url)`` — scans the remote folder via
+       ``gdown.download_folder(skip_download=True)`` and stores a JSON manifest
+       mapping ``relative_path → gdrive_file_id``.  No data is downloaded.
+    2. ``warm_meta_files()`` — eagerly downloads every ``meta.json`` (tiny,
+       needed by the DatasetManager index) and creates 0-byte stub files for
+       every ``.dat`` signal file so that ``scan_dataset()`` can enumerate them.
+    3. ``ensure_file(rel_path)`` — downloads a single file on demand the first
+       time it is needed (called by :class:`LazyGDriveDatasetManager`).
     """
-    try:
+
+    MANIFEST_FILENAME = "_gdrive_manifest.json"
+
+    def __init__(self, cache_dir: Path):
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._manifest: Dict[str, str] = {}
+        self._load_manifest()
+
+    # ── Manifest persistence ──────────────────────────────────────────────────
+
+    def _manifest_path(self) -> Path:
+        return self.cache_dir / self.MANIFEST_FILENAME
+
+    def _load_manifest(self) -> bool:
+        mp = self._manifest_path()
+        if mp.exists():
+            with open(mp, encoding="utf-8") as f:
+                self._manifest = json.load(f)
+            return True
+        return False
+
+    def _save_manifest(self) -> None:
+        with open(self._manifest_path(), "w", encoding="utf-8") as f:
+            json.dump(self._manifest, f, indent=2)
+
+    def has_manifest(self) -> bool:
+        return bool(self._manifest)
+
+    # ── Core API ──────────────────────────────────────────────────────────────
+
+    def build_manifest(self, folder_url: str) -> None:
+        """Scan the remote folder and save the file manifest.  No files downloaded."""
         import gdown
-    except ImportError:
-        raise ImportError(
-            "gdown is not installed.\n"
-            "Install it with:  pip install gdown"
+        from gdown.download_folder import download_folder as _gdown_folder
+
+        # skip_download=True → returns GoogleDriveFileToDownload(id, path, local_path)
+        # Pass output=cache_dir (no trailing sep) so local_path = cache_dir/path
+        entries = _gdown_folder(
+            url=folder_url,
+            output=str(self.cache_dir),
+            skip_download=True,
+            quiet=True,
+        )
+        if not entries:
+            raise RuntimeError(
+                "Google Drive returned an empty file listing. "
+                "Make sure the folder is shared publicly (Anyone with link)."
+            )
+
+        self._manifest = {}
+        for entry in entries:
+            # When skip_download=True, entries are GoogleDriveFileToDownload namedtuples
+            entry_local = getattr(entry, "local_path", None)
+            entry_id = getattr(entry, "id", None)
+            entry_rel = getattr(entry, "path", None)
+            if entry_local is None or entry_id is None:
+                continue  # folder stub or unexpected type
+            local = Path(entry_local)
+            try:
+                rel = str(local.relative_to(self.cache_dir))
+            except ValueError:
+                rel = str(entry_rel) if entry_rel is not None else str(local.name)
+            self._manifest[rel] = entry_id
+
+        self._save_manifest()
+
+    def warm_meta_files(self, progress_fn=None) -> int:
+        """Download all meta.json files and create 0-byte stubs for .dat files.
+
+        Returns the number of meta files downloaded.
+        """
+        meta_keys = [k for k in self._manifest if k.endswith("meta.json")]
+        dat_keys = [k for k in self._manifest if k.lower().endswith(".dat")]
+
+        # Download meta files
+        for i, rel_path in enumerate(meta_keys):
+            self.ensure_file(rel_path)
+            if progress_fn:
+                progress_fn(i + 1, len(meta_keys))
+
+        # Create 0-byte stubs so scan_dataset() can enumerate signal files
+        for rel_path in dat_keys:
+            local = self.cache_dir / rel_path
+            if not local.exists():
+                local.parent.mkdir(parents=True, exist_ok=True)
+                local.touch()
+
+        return len(meta_keys)
+
+    def ensure_file(self, rel_path: str) -> Path:
+        """Download file if missing or empty stub.  Returns local path."""
+        import gdown
+
+        local = self.cache_dir / rel_path
+        if local.exists() and local.stat().st_size > 0:
+            return local
+
+        # Normalise separators when looking up the manifest
+        file_id: Optional[str] = self._manifest.get(rel_path)
+        if file_id is None:
+            rel_norm = rel_path.replace("\\", "/")
+            for k, v in self._manifest.items():
+                if k.replace("\\", "/") == rel_norm:
+                    file_id = v
+                    break
+        if file_id is None:
+            raise FileNotFoundError(
+                f"'{rel_path}' is not in the GDrive manifest. "
+                "Run build_manifest() first."
+            )
+
+        local.parent.mkdir(parents=True, exist_ok=True)
+        from gdown.download import download as _gdown_dl
+        _gdown_dl(id=file_id, output=str(local), quiet=True)
+        return local
+
+    def ensure_absolute(self, abs_path: Path) -> Path:
+        """Like ensure_file but accepts an absolute path inside cache_dir."""
+        try:
+            rel = str(abs_path.relative_to(self.cache_dir))
+        except ValueError:
+            raise ValueError(f"{abs_path} is not inside cache_dir {self.cache_dir}")
+        return self.ensure_file(rel)
+
+    def cached_count(self) -> int:
+        """Number of real (non-stub) files currently on disk."""
+        return sum(
+            1 for rel in self._manifest
+            if (self.cache_dir / rel).exists()
+            and (self.cache_dir / rel).stat().st_size > 0
         )
 
-    import re
-    import shutil
-    import tempfile
-    import zipfile
+    def total_count(self) -> int:
+        return len(self._manifest)
 
-    url = url.strip()
-    dest_path = project_root / dest_name
 
-    # ── Classify URL ──────────────────────────────────────────────────────────
-    folder_match = re.search(r"/drive/folders/([A-Za-z0-9_-]+)", url)
-    file_match   = re.search(r"/file/d/([A-Za-z0-9_-]+)", url)
-    id_match     = re.search(r"[?&]id=([A-Za-z0-9_-]+)", url)
+class LazyGDriveDatasetManager:
+    """Drop-in replacement for DatasetManager that downloads .dat files on demand.
 
-    if folder_match:
-        # ── Google Drive folder ───────────────────────────────────────────────
-        folder_id = folder_match.group(1)
-        with tempfile.TemporaryDirectory() as tmp_parent:
-            gdown.download_folder(
-                id=folder_id,
-                output=tmp_parent,
-                quiet=False,
-            )
-            # gdown places files under tmp_parent/FOLDER_NAME/
-            children = list(Path(tmp_parent).iterdir())
-            if not children:
-                raise RuntimeError("gdown did not download any files from the folder.")
-            src = children[0] if (len(children) == 1 and children[0].is_dir()) else Path(tmp_parent)
-            if dest_path.exists():
-                shutil.rmtree(dest_path)
-            shutil.copytree(str(src), str(dest_path))
-    else:
-        # ── Single file (ZIP expected) ────────────────────────────────────────
-        file_id = None
-        if file_match:
-            file_id = file_match.group(1)
-        elif id_match:
-            file_id = id_match.group(1)
+    Delegates everything to the wrapped DatasetManager; only ``load_sample``
+    is intercepted to trigger a download when the file is missing or is a
+    0-byte stub.
+    """
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".download") as tmp_f:
-            tmp_path = Path(tmp_f.name)
-        try:
-            gdown.download(
-                id=file_id if file_id else url,
-                output=str(tmp_path),
-                quiet=False,
-                fuzzy=True,
-            )
-            if not zipfile.is_zipfile(tmp_path):
-                raise ValueError(
-                    "The downloaded file is not a ZIP archive. "
-                    "Please share a Google Drive *folder* link, or a ZIP file link."
-                )
-            if dest_path.exists():
-                shutil.rmtree(dest_path)
-            dest_path.mkdir(parents=True)
-            with zipfile.ZipFile(tmp_path, "r") as zf:
-                zf.extractall(dest_path)
-            # Flatten single-root-folder zip so dest_path/ contains the data directly
-            children = list(dest_path.iterdir())
-            if len(children) == 1 and children[0].is_dir():
-                inner = children[0]
-                for item in inner.iterdir():
-                    shutil.move(str(item), str(dest_path / item.name))
-                inner.rmdir()
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
+    def __init__(self, dataset_path: Path, cache: GDriveCache):
+        ensure_toolbox_on_path()
+        from ml_toolbox.data_loader.dataset_manager import DatasetManager
+        self._dm = DatasetManager(dataset_path)
+        self._cache = cache
 
-    return dest_path
+    # Forward attribute access to the wrapped DatasetManager
+    def __getattr__(self, name: str):
+        return getattr(self._dm, name)
+
+    def load_sample(self, file_info: Dict) -> Any:
+        """Ensure the file is on disk, then delegate to the real loader."""
+        abs_path = Path(file_info["absolute_path"])
+        if not abs_path.exists() or abs_path.stat().st_size == 0:
+            self._cache.ensure_absolute(abs_path)
+        return self._dm.load_sample(file_info)
+
+
+def connect_gdrive_dataset(
+    folder_url: str,
+    local_name: str,
+    project_root: Path,
+    progress_fn=None,
+) -> Path:
+    """Build a GDrive manifest and warm meta files for *local_name* dataset.
+
+    Parameters
+    ----------
+    folder_url:
+        Public Google Drive folder URL.
+    local_name:
+        Name of the local dataset folder (e.g. ``"data_set_gdrive"``).
+    project_root:
+        Project root directory.
+    progress_fn:
+        Optional ``fn(step: str, done: int, total: int)`` for progress updates.
+
+    Returns
+    -------
+    Path
+        Local path to the dataset folder.
+    """
+    cache_dir = project_root / local_name
+    cache = GDriveCache(cache_dir)
+    cache.build_manifest(folder_url)
+    cache.warm_meta_files(
+        progress_fn=lambda done, tot: (
+            progress_fn("meta", done, tot) if progress_fn else None
+        )
+    )
+    return cache_dir

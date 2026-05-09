@@ -26,7 +26,8 @@ from utils import (
     confusion_matrix_chart,
     correlation_heatmap,
     preprocessing_preview_chart,
-    download_from_gdrive,
+    GDriveCache,
+    connect_gdrive_dataset,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -71,20 +72,23 @@ with st.sidebar:
 
     st.divider()
 
-    with st.expander("Load from Google Drive", expanded=False):
+    with st.expander("Connect Google Drive Dataset", expanded=False):
         gdrive_url = st.text_input(
-            "Google Drive link",
-            placeholder="https://drive.google.com/drive/folders/… or file link",
+            "Folder URL",
+            placeholder="https://drive.google.com/drive/folders/…",
             key="gdrive_url",
         )
         gdrive_name = st.text_input(
             "Local dataset name",
             value="data_set_gdrive",
             key="gdrive_name",
-            help="Folder name under the project root where the dataset will be saved.",
+            help=(
+                "Folder name created under the project root. "
+                "Must start with 'data_set_' to appear in the dropdowns."
+            ),
         )
 
-        # Show result message from the previous render cycle
+        # Show result of the previous render cycle
         _gdrive_msg = st.session_state.pop("_gdrive_msg", None)
         if _gdrive_msg:
             if _gdrive_msg["type"] == "success":
@@ -92,23 +96,45 @@ with st.sidebar:
             else:
                 st.error(_gdrive_msg["text"])
 
-        _gdrive_disabled = not (gdrive_url.strip() and gdrive_name.strip())
-        if st.button("Download", key="btn_gdrive_download", disabled=_gdrive_disabled):
+        # Status for already-connected datasets
+        _candidate = PROJECT_ROOT / gdrive_name
+        if (_candidate / GDriveCache.MANIFEST_FILENAME).exists():
+            _cache_status = GDriveCache(_candidate)
+            st.caption(
+                f"Connected — {_cache_status.cached_count()} / "
+                f"{_cache_status.total_count()} files on disk "
+                f"(remaining download during feature extraction)"
+            )
+
+        _disabled = not (gdrive_url.strip() and gdrive_name.strip())
+        if st.button("Connect & Index", key="btn_gdrive_connect", disabled=_disabled):
             try:
-                with st.spinner("Downloading from Google Drive…"):
-                    _dest = download_from_gdrive(
-                        gdrive_url.strip(),
-                        gdrive_name.strip(),
-                        PROJECT_ROOT,
+                _pb = st.progress(0, text="Scanning remote folder…")
+
+                def _prog(step, done, tot):
+                    if tot > 0:
+                        _pb.progress(done / tot, text=f"Downloading meta files… {done}/{tot}")
+
+                with st.spinner("Building file index from Google Drive…"):
+                    connect_gdrive_dataset(
+                        folder_url=gdrive_url.strip(),
+                        local_name=gdrive_name.strip(),
+                        project_root=PROJECT_ROOT,
+                        progress_fn=_prog,
                     )
+                _pb.progress(1.0, text="Done")
                 st.session_state["_gdrive_msg"] = {
                     "type": "success",
-                    "text": f"Downloaded to `{_dest.name}`. Select it in the dataset dropdowns above.",
+                    "text": (
+                        f"Indexed '{gdrive_name}'. "
+                        "Select it in the dataset dropdowns above — "
+                        "signal files will download automatically during feature extraction."
+                    ),
                 }
-            except Exception as _gdrive_err:
+            except Exception as _e:
                 st.session_state["_gdrive_msg"] = {
                     "type": "error",
-                    "text": f"Download failed: {_gdrive_err}",
+                    "text": f"Connection failed: {_e}",
                 }
             st.rerun()
 
