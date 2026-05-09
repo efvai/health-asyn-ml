@@ -67,6 +67,10 @@ with st.sidebar:
         key="sidebar_test_dataset",
     )
 
+    if train_dataset is None or test_dataset is None:
+        st.warning("No datasets found. Use **Connect Google Drive Dataset** below to add one.")
+        st.stop()
+
     train_path = str(PROJECT_ROOT / train_dataset)
     test_path = str(PROJECT_ROOT / test_dataset)
 
