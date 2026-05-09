@@ -36,6 +36,10 @@ from . import analysis
 from . import signal_processing
 from .signal_processing import compute_fft_spectrum, find_spectral_peaks
 
+# Import preprocessing utilities
+from . import preprocessing
+from .preprocessing import ButterworthLPF
+
 __all__ = [
     'data_io',
     'analysis',
@@ -56,7 +60,9 @@ __all__ = [
     'HilbertEnvelopeAnalyzer',
     'EnvelopeConfig',
     'compute_fft_spectrum',
-    'find_spectral_peaks'
+    'find_spectral_peaks',
+    'preprocessing',
+    'ButterworthLPF',
 ]
 
 __version__ = "1.0.0"

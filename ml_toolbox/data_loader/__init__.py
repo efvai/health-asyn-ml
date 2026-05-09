@@ -3,7 +3,7 @@ Data loading utilities for the ML toolbox.
 """
 
 from .dataset_manager import DatasetManager
-from .data_loader import DataLoader  
+from .data_loader import DataLoader, extract_features_lazy
 from .windowing import (
     WindowConfig, WindowExtractor, StratifiedWindowExtractor, 
     create_windows_for_ml, create_label_to_class_map
@@ -23,6 +23,7 @@ from .envelope_analyzer import (
 __all__ = [
     'DatasetManager',
     'DataLoader',
+    'extract_features_lazy',
     'WindowConfig',
     'WindowExtractor',
     'StratifiedWindowExtractor',

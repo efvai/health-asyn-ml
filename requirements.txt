@@ -26,6 +26,12 @@ openpyxl>=3.0.0
 # Optional: For more advanced interpolation methods
 # scipy already provides interpolation functions
 
+# Streamlit interactive app
+streamlit>=1.35.0
+
+# Google Drive dataset downloader
+gdown>=4.6.0
+
 # Development and testing
 pytest>=6.0.0
 pytest-cov>=2.12.0
