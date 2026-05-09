@@ -67,12 +67,8 @@ with st.sidebar:
         key="sidebar_test_dataset",
     )
 
-    if train_dataset is None or test_dataset is None:
-        st.warning("No datasets found. Use **Connect Google Drive Dataset** below to add one.")
-        st.stop()
-
-    train_path = str(PROJECT_ROOT / train_dataset)
-    test_path = str(PROJECT_ROOT / test_dataset)
+    train_path = str(PROJECT_ROOT / train_dataset) if train_dataset else None
+    test_path = str(PROJECT_ROOT / test_dataset) if test_dataset else None
 
     st.divider()
 
@@ -141,6 +137,16 @@ with st.sidebar:
                     "text": f"Connection failed: {_e}",
                 }
             st.rerun()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guard — no datasets available
+# ─────────────────────────────────────────────────────────────────────────────
+if train_path is None or test_path is None:
+    st.warning(
+        "No datasets found. "
+        "Use **Connect Google Drive Dataset** in the sidebar to add one."
+    )
+    st.stop()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tabs
