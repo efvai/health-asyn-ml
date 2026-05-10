@@ -8,7 +8,7 @@ from typing import Union
 from .read_raw import read_raw
 
 
-def read_vibro(file_path: Union[str, Path]) -> np.ndarray:
+def read_vibro(file_path: Union[str, Path], dtype=np.float64) -> np.ndarray:
     """
     Read binary ADC vibration signal.
     
@@ -22,5 +22,5 @@ def read_vibro(file_path: Union[str, Path]) -> np.ndarray:
         np.ndarray: Raw data with shape [samples, channels]
     """
     # Read raw data using base function (4 channels for vibration)
-    data = read_raw(file_path, 4)
+    data = read_raw(file_path, 4, dtype=dtype)
     return data

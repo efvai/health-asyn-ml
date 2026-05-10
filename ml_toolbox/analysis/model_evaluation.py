@@ -16,9 +16,6 @@ from sklearn.model_selection import StratifiedKFold, StratifiedGroupKFold
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, confusion_matrix
 
 
-import shap
-
-
 def _resolve_n_jobs(cv_folds: int, n_jobs: int | None) -> int:
     if n_jobs is None:
         return max(1, min(cv_folds, os.cpu_count() or 1))
@@ -151,6 +148,8 @@ def _run_cv_shap_fold(
     model = est.named_steps["rf"]
 
     X_val_scaled = scaler.transform(X_val)
+
+    import shap  # lazy import to avoid loading numba/llvmlite at module import time
 
     # Use tree-path-dependent mode for exact tree-model additivity.
     # Passing a background matrix can trigger interventional estimates that

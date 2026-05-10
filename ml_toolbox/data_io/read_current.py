@@ -15,6 +15,7 @@ def read_current(
     sampling_freq: float = 10000,
     cutoff_freq: float = 3500,
     median_window: int = 7,
+    dtype=np.float64,
 ) -> np.ndarray:
     """
     Read binary ADC current signal with preprocessing.
@@ -39,7 +40,7 @@ def read_current(
     # ADC_OFFSET = 2.5  # Original fixed offset
   
     # Read raw data using base function (2 channels for current)
-    raw_data = read_raw(file_path, 2)
+    raw_data = read_raw(file_path, 2, dtype=dtype)
     
     # Remove DC offset by subtracting mean
     data = raw_data - np.mean(raw_data, axis=0)

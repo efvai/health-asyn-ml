@@ -26,6 +26,12 @@ class DatasetManager:
     def __init__(self, dataset_path: Path):
         self.dataset_path = Path(dataset_path)
         self._index = None
+        # Auto-detect binary dtype from folder name suffix.
+        # Datasets reconstructed by float_conv.py end with "_float32".
+        if self.dataset_path.name.endswith("_float32"):
+            self._dat_dtype = np.float32
+        else:
+            self._dat_dtype = np.float64
     
     def scan_dataset(self) -> Dict:
         """Scan dataset directory and create index based on per-sample meta.json files."""
@@ -127,9 +133,9 @@ class DatasetManager:
         sensor_type = file_info["sensor_type"]
         
         if sensor_type == "current":
-            return read_current(file_path)
+            return read_current(file_path, dtype=self._dat_dtype)
         elif sensor_type == "vibration":
-            return read_vibro(file_path)
+            return read_vibro(file_path, dtype=self._dat_dtype)
         else:
             raise ValueError(f"Unknown sensor type: {sensor_type}")
   
