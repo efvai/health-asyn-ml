@@ -26,8 +26,9 @@ from utils import (
     confusion_matrix_chart,
     correlation_heatmap,
     preprocessing_preview_chart,
-    GDriveCache,
-    connect_gdrive_dataset,
+    HF_REPO_ID,
+    list_hf_datasets,
+    download_hf_dataset,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -72,71 +73,45 @@ with st.sidebar:
 
     st.divider()
 
-    with st.expander("Connect Google Drive Dataset", expanded=False):
-        gdrive_url = st.text_input(
-            "Folder URL",
-            placeholder="https://drive.google.com/drive/folders/…",
-            key="gdrive_url",
-        )
-        gdrive_name = st.text_input(
-            "Local dataset name",
-            value="data_set_gdrive",
-            key="gdrive_name",
-            help=(
-                "Folder name created under the project root. "
-                "Must start with 'data_set_' to appear in the dropdowns."
-            ),
-        )
+    with st.expander("Download from Hugging Face", expanded=False):
+        st.caption(f"`{HF_REPO_ID}`")
+        try:
+            _hf_datasets = list_hf_datasets(HF_REPO_ID)
+        except Exception as _e:
+            _hf_datasets = []
+            st.warning(f"Could not reach Hugging Face: {_e}")
 
-        # Show result of the previous render cycle
-        _gdrive_msg = st.session_state.pop("_gdrive_msg", None)
-        if _gdrive_msg:
-            if _gdrive_msg["type"] == "success":
-                st.success(_gdrive_msg["text"])
-            else:
-                st.error(_gdrive_msg["text"])
-
-        # Status for already-connected datasets
-        _candidate = PROJECT_ROOT / gdrive_name
-        if (_candidate / GDriveCache.MANIFEST_FILENAME).exists():
-            _cache_status = GDriveCache(_candidate)
-            st.caption(
-                f"Connected — {_cache_status.cached_count()} / "
-                f"{_cache_status.total_count()} files on disk "
-                f"(remaining download during feature extraction)"
+        if _hf_datasets:
+            _hf_selected = st.selectbox(
+                "Dataset",
+                _hf_datasets,
+                key="hf_dataset_select",
             )
+            _local_exists = (PROJECT_ROOT / _hf_selected).exists() if _hf_selected else False
+            if _local_exists:
+                st.caption(f"✔️ Already downloaded locally.")
 
-        _disabled = not (gdrive_url.strip() and gdrive_name.strip())
-        if st.button("Connect & Index", key="btn_gdrive_connect", disabled=_disabled):
-            try:
-                _pb = st.progress(0, text="Scanning remote folder…")
+            _dl_msg = st.session_state.pop("_hf_dl_msg", None)
+            if _dl_msg:
+                if _dl_msg["type"] == "success":
+                    st.success(_dl_msg["text"])
+                else:
+                    st.error(_dl_msg["text"])
 
-                def _prog(step, done, tot):
-                    if tot > 0:
-                        _pb.progress(done / tot, text=f"Downloading meta files… {done}/{tot}")
-
-                with st.spinner("Building file index from Google Drive…"):
-                    connect_gdrive_dataset(
-                        folder_url=gdrive_url.strip(),
-                        local_name=gdrive_name.strip(),
-                        project_root=PROJECT_ROOT,
-                        progress_fn=_prog,
-                    )
-                _pb.progress(1.0, text="Done")
-                st.session_state["_gdrive_msg"] = {
-                    "type": "success",
-                    "text": (
-                        f"Indexed '{gdrive_name}'. "
-                        "Select it in the dataset dropdowns above — "
-                        "signal files will download automatically during feature extraction."
-                    ),
-                }
-            except Exception as _e:
-                st.session_state["_gdrive_msg"] = {
-                    "type": "error",
-                    "text": f"Connection failed: {_e}",
-                }
-            st.rerun()
+            if st.button("Download", key="btn_hf_download", disabled=not _hf_selected):
+                try:
+                    with st.spinner(f"Downloading {_hf_selected} from Hugging Face…"):
+                        download_hf_dataset(_hf_selected, PROJECT_ROOT)
+                    st.session_state["_hf_dl_msg"] = {
+                        "type": "success",
+                        "text": f"'{_hf_selected}' downloaded. Select it in the dropdowns above.",
+                    }
+                except Exception as _e:
+                    st.session_state["_hf_dl_msg"] = {
+                        "type": "error",
+                        "text": f"Download failed: {_e}",
+                    }
+                st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Guard — no datasets available
@@ -144,7 +119,7 @@ with st.sidebar:
 if train_path is None or test_path is None:
     st.warning(
         "No datasets found. "
-        "Use **Connect Google Drive Dataset** in the sidebar to add one."
+        "Use **Download from Hugging Face** in the sidebar to add one."
     )
     st.stop()
 
