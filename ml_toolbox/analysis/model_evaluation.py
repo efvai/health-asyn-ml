@@ -8,7 +8,7 @@ accept or include a `frequency` argument so it can be reused across modules.
 
 import numpy as np
 from typing import Any, Dict, List, Tuple
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 import os
 
 from sklearn.base import clone
@@ -329,18 +329,20 @@ def cross_validate_with_models(
 
     if parallel and len(fold_splits) > 1:
         workers = _resolve_n_jobs(cv_folds=cv_folds, n_jobs=n_jobs)
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            fold_results = list(
-                executor.map(
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(
                     _run_cv_fold,
-                    range(len(fold_splits)),
-                    [pipeline] * len(fold_splits),
-                    [features] * len(fold_splits),
-                    [labels] * len(fold_splits),
-                    [s[0] for s in fold_splits],
-                    [s[1] for s in fold_splits],
+                    fold_idx=fold_idx,
+                    pipeline=pipeline,
+                    features=features,
+                    labels=labels,
+                    train_idx=train_idx,
+                    val_idx=val_idx,
                 )
-            )
+                for fold_idx, (train_idx, val_idx) in enumerate(fold_splits)
+            ]
+            fold_results = [f.result() for f in futures]
         fold_results.sort(key=lambda item: item["fold_idx"])
         for fold_result in fold_results:
             val_idx = fold_result["val_idx"]
@@ -397,18 +399,20 @@ def cv_shap(
 
     if parallel and len(fold_splits) > 1:
         workers = _resolve_n_jobs(cv_folds=cv_folds, n_jobs=n_jobs)
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            fold_results = list(
-                executor.map(
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(
                     _run_cv_shap_fold,
-                    range(len(fold_splits)),
-                    [pipeline] * len(fold_splits),
-                    [features] * len(fold_splits),
-                    [labels] * len(fold_splits),
-                    [s[0] for s in fold_splits],
-                    [s[1] for s in fold_splits],
+                    fold_idx=fold_idx,
+                    pipeline=pipeline,
+                    features=features,
+                    labels=labels,
+                    train_idx=train_idx,
+                    val_idx=val_idx,
                 )
-            )
+                for fold_idx, (train_idx, val_idx) in enumerate(fold_splits)
+            ]
+            fold_results = [f.result() for f in futures]
         fold_results.sort(key=lambda item: item["fold_idx"])
         for fold_result in fold_results:
             estimators.append((fold_result["estimator"], fold_result["val_idx"]))
