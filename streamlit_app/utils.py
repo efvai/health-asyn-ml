@@ -109,6 +109,7 @@ def run_lazy_extraction(
     class_to_int: Optional[Dict] = None,
     progress_bar=None,
     status_text=None,
+    detrend_enabled: bool = False,
 ):
     """Run extract_features_lazy with an optional Streamlit progress bar.
 
@@ -116,9 +117,20 @@ def run_lazy_extraction(
     """
     ensure_toolbox_on_path()
     from ml_toolbox.data_loader import extract_features_lazy
-    from ml_toolbox import ButterworthLPF
+    from ml_toolbox import ButterworthLPF, DetrendingFilter, PreprocessorPipeline
 
-    preprocessor = ButterworthLPF(cutoff_hz=lpf_cutoff, order=lpf_order) if lpf_enabled else None
+    _steps = []
+    if detrend_enabled:
+        _steps.append(DetrendingFilter())
+    if lpf_enabled:
+        _steps.append(ButterworthLPF(cutoff_hz=lpf_cutoff, order=lpf_order))
+
+    if len(_steps) == 0:
+        preprocessor = None
+    elif len(_steps) == 1:
+        preprocessor = _steps[0]
+    else:
+        preprocessor = PreprocessorPipeline(steps=_steps)
 
     def _progress(done: int, tot: int):
         if progress_bar is not None:
@@ -194,7 +206,7 @@ def cached_load_single_raw(dataset_path: str, sample_id: str, sensor_type: str):
     arr = data_list[0]
     if arr.ndim == 1:
         arr = arr[:, np.newaxis]
-    return arr.astype(np.float32), metadata_list[0]
+    return arr, metadata_list[0]
 
 
 def preprocessing_preview_chart(
@@ -239,8 +251,8 @@ def preprocessing_preview_chart(
     fig.update_yaxes(title_text="Amplitude", row=1, col=1)
 
     # Frequency domain
-    sig_raw = raw[:, channel].astype(np.float64)
-    sig_fil = filtered[:, channel].astype(np.float64)
+    sig_raw = raw[:, channel]
+    sig_fil = filtered[:, channel]
     if freq_mode == "Welch":
         from scipy.signal import welch as _welch
         _nperseg = min(nperseg, len(sig_raw))
@@ -251,10 +263,10 @@ def preprocessing_preview_chart(
         _win_r = np.hanning(len(sig_raw))
         _win_f = np.hanning(len(sig_fil))
         f_r = np.fft.rfftfreq(len(sig_raw), d=1.0 / fs)
-        p_r = np.abs(np.fft.rfft(sig_raw * _win_r))
+        p_r = np.abs(np.fft.rfft(sig_raw * _win_r)) / np.sum(_win_r)
         f_f = np.fft.rfftfreq(len(sig_fil), d=1.0 / fs)
-        p_f = np.abs(np.fft.rfft(sig_fil * _win_f))
-        y_label = "Magnitude"
+        p_f = np.abs(np.fft.rfft(sig_fil * _win_f)) / np.sum(_win_f)
+        y_label = "Magnitude (normalised)"
 
     fig.add_trace(
         go.Scatter(x=f_r, y=p_r, name="Raw", showlegend=False,
@@ -349,8 +361,8 @@ def window_frequency_chart(
     if filtered_window.ndim == 1:
         filtered_window = filtered_window[:, np.newaxis]
 
-    sig_r = raw_window[:, channel].astype(np.float64)
-    sig_f = filtered_window[:, channel].astype(np.float64)
+    sig_r = raw_window[:, channel]
+    sig_f = filtered_window[:, channel]
 
     if freq_mode == "Welch":
         from scipy.signal import welch as _welch
@@ -362,10 +374,12 @@ def window_frequency_chart(
         hann_r = np.hanning(len(sig_r))
         hann_f = np.hanning(len(sig_f))
         f_r = np.fft.rfftfreq(len(sig_r), d=1.0 / fs)
-        p_r = np.abs(np.fft.rfft(sig_r * hann_r))
+        p_r = np.abs(np.fft.rfft(sig_r * hann_r)) / np.sum(hann_r)
+        p_r[1:-1] *= 2  # compensate for dropped negative freqs (except DC and Nyquist)
         f_f = np.fft.rfftfreq(len(sig_f), d=1.0 / fs)
-        p_f = np.abs(np.fft.rfft(sig_f * hann_f))
-        y_label = "Magnitude"
+        p_f = np.abs(np.fft.rfft(sig_f * hann_f)) / np.sum(hann_f)
+        p_f[1:-1] *= 2  # compensate for dropped negative freqs (except DC and Nyquist)
+        y_label = "Amplitude"
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -391,7 +405,7 @@ def window_signal_chart(window: np.ndarray, channel: int, fs: float = 1.0, title
     """Time-domain and Welch PSD side-by-side for a single window (window_size, n_channels)."""
     from scipy.signal import welch
 
-    signal = window[:, channel].astype(np.float64)
+    signal = window[:, channel]
     t = np.arange(len(signal)) / fs
     nperseg = min(4096, len(signal))
     freqs, psd = welch(signal, fs=fs, nperseg=nperseg)

@@ -49,6 +49,7 @@ AVAILABLE_DATASETS = discover_datasets(PROJECT_ROOT)
 # ── Shared defaults — set once before any tab renders ───────────────────────
 for _key, _val in [
     ("lpf_enabled", True), ("lpf_cutoff", 500), ("lpf_order", 4),
+    ("detrend_enabled", False),
     ("win_size", 10000), ("win_overlap", 0.5),
 ]:
     if _key not in st.session_state:
@@ -186,6 +187,10 @@ with tab_info:
 with tab_prep:
     st.subheader("Preprocessing")
 
+    st.markdown("### Detrending")
+    st.toggle("Enable Detrending", key="detrend_enabled")
+    st.caption("Removes linear trend from each signal. Applied before LPF.")
+
     st.markdown("### Butterworth Low-Pass Filter")
     col_lpf1, col_lpf2, col_lpf3 = st.columns(3)
     with col_lpf1:
@@ -278,18 +283,20 @@ with tab_prep:
                 _fs_key_raw = "sample_rate_vibro_hz" if prep_sensor == "vibration" else "sample_rate_current_hz"
                 fs = float(raw_meta.get(_fs_key_raw) or 1.0)
 
+                from ml_toolbox import ButterworthLPF, DetrendingFilter, PreprocessorPipeline
+                _steps = []
+                if st.session_state.get("detrend_enabled", False):
+                    _steps.append(DetrendingFilter())
                 if st.session_state["lpf_enabled"]:
-                    from ml_toolbox import ButterworthLPF
-                    try:
-                        _filt = ButterworthLPF(
-                            cutoff_hz=float(st.session_state["lpf_cutoff"]),
-                            order=int(st.session_state["lpf_order"]),
-                        )
-                        filtered = _filt.apply(raw.astype(np.float64), fs=fs).astype(np.float32)
-                    except Exception as _e:
-                        st.error(f"LPF error: {_e}")
-                        filtered = raw
-                else:
+                    _steps.append(ButterworthLPF(
+                        cutoff_hz=float(st.session_state["lpf_cutoff"]),
+                        order=int(st.session_state["lpf_order"]),
+                    ))
+                _pipeline = PreprocessorPipeline(steps=_steps)
+                try:
+                    filtered = _pipeline.apply(raw, fs=fs)
+                except Exception as _e:
+                    st.error(f"Preprocessing error: {_e}")
                     filtered = raw
 
                 # Window parameters (shared with Feature Extraction tab)
@@ -390,7 +397,8 @@ with tab_features:
         f"order {st.session_state['lpf_order']}"
         if st.session_state["lpf_enabled"] else "LPF OFF"
     )
-    st.caption(f"{_lpf_status} · Configure in **2 · Preprocessing**")
+    _detrend_status = "Detrend ON" if st.session_state.get("detrend_enabled", False) else "Detrend OFF"
+    st.caption(f"{_lpf_status} · {_detrend_status} · Configure in **2 · Preprocessing**")
 
     # ── Data filters ─────────────────────────────────────────────────────────
     st.markdown("### Data Filters")
@@ -520,6 +528,7 @@ with tab_features:
                 lpf_enabled=st.session_state["lpf_enabled"],
                 lpf_cutoff=float(st.session_state["lpf_cutoff"]),
                 lpf_order=int(st.session_state["lpf_order"]),
+                detrend_enabled=st.session_state.get("detrend_enabled", False),
                 window_size=int(window_size),
                 overlap_ratio=float(overlap_ratio),
                 shuffle=shuffle,
@@ -646,6 +655,7 @@ with tab_train:
                     lpf_enabled=st.session_state["lpf_enabled"],
                     lpf_cutoff=float(st.session_state["lpf_cutoff"]),
                     lpf_order=int(st.session_state["lpf_order"]),
+                    detrend_enabled=st.session_state.get("detrend_enabled", False),
                     window_size=int(st.session_state.get("win_size", 10000)),
                     overlap_ratio=float(st.session_state.get("win_overlap", 0.5)),
                     shuffle=False,
