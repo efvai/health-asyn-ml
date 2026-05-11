@@ -33,7 +33,7 @@ from . import signal_processing
 
 # Import preprocessing utilities
 from . import preprocessing
-from .preprocessing import ButterworthLPF
+from .preprocessing import PreprocessorPipeline, ButterworthLPF, DetrendingFilter, resample_dataset
 
 __all__ = [
     'data_io',
@@ -51,7 +51,10 @@ __all__ = [
     'FrequencyDomainFeatures',
     'extract_features_for_ml',
     'preprocessing',
+    'PreprocessorPipeline',
     'ButterworthLPF',
+    'DetrendingFilter',
+    'resample_dataset',
 ]
 
 __version__ = "1.0.0"

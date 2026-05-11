@@ -4,8 +4,18 @@ Digital filter implementations for signal preprocessing.
 
 import numpy as np
 from scipy import signal as _signal
-from typing import Optional
 
+class PreprocessorPipeline:
+    def __init__(self, steps: list):
+        self.steps = steps
+    
+    def apply(self, data: np.ndarray, fs: float) -> np.ndarray:
+        for step in self.steps:
+            data = step.apply(data, fs)
+        return data
+    def __repr__(self) -> str:
+        step_names = [step.__class__.__name__ for step in self.steps]
+        return f"PreprocessorPipeline(steps={step_names})"
 
 class ButterworthLPF:
     """Zero-phase Butterworth low-pass filter.
@@ -43,7 +53,7 @@ class ButterworthLPF:
         Returns
         -------
         np.ndarray
-            Filtered signal with the same shape and dtype as *data*.
+            Filtered signal with the same shape
         """
         nyq = fs / 2.0
         if self.cutoff_hz >= nyq:
@@ -53,7 +63,36 @@ class ButterworthLPF:
             )
         normalized_cutoff = self.cutoff_hz / nyq
         b, a = _signal.butter(self.order, normalized_cutoff, btype='low')
-        return _signal.filtfilt(b, a, data, axis=0).astype(data.dtype)
+        return _signal.filtfilt(b, a, data, axis=0)
 
     def __repr__(self) -> str:
         return f"ButterworthLPF(cutoff_hz={self.cutoff_hz}, order={self.order})"
+    
+class DetrendingFilter:
+    """Detrending filter to remove linear trends from signals.
+
+    Parameters
+    ----------
+    None
+    """
+
+    def apply(self, data: np.ndarray, fs: float = None) -> np.ndarray:
+        """Apply the detrending filter to a signal.
+
+        Works on 1-D arrays and 2-D arrays with shape ``(samples, channels)`` —
+        each channel is detrended independently.
+
+        Parameters
+        ----------
+        data : np.ndarray
+            Input signal. Shape ``(n_samples,)`` or ``(n_samples, n_channels)``.
+
+        Returns
+        -------
+        np.ndarray
+            Detrended signal with the same shape
+        """
+        return _signal.detrend(data, axis=0)
+
+    def __repr__(self) -> str:
+        return "DetrendingFilter()"

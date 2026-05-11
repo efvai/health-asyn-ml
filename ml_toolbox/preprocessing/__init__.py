@@ -2,6 +2,7 @@
 Signal preprocessing tools.
 """
 
-from .filters import ButterworthLPF
+from .filters import PreprocessorPipeline, ButterworthLPF, DetrendingFilter
+from .downsampler import resample_dataset
 
-__all__ = ['ButterworthLPF']
+__all__ = ['PreprocessorPipeline', 'ButterworthLPF', 'DetrendingFilter', 'resample_dataset']

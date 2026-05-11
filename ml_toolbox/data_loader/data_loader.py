@@ -167,7 +167,6 @@ def extract_features_lazy(
     label_map     : Dict[int, str]  — reverse of class_to_int
     """
     from .feature_extraction import FeatureExtractor
-    from .features import FeatureConfig
 
     if not file_list:
         raise ValueError("file_list is empty — check your filter criteria")
@@ -211,8 +210,7 @@ def extract_features_lazy(
 
             # ── Apply preprocessor ────────────────────────────────────────
             if preprocessor is not None:
-                signal = preprocessor.apply(signal.astype(np.float64), fs=fs)
-            signal = signal.astype(np.float32)
+                signal = preprocessor.apply(signal, fs=fs)
 
             # ── Skip files shorter than one window ────────────────────────
             if n_samples < window_size:
@@ -271,7 +269,7 @@ def extract_features_lazy(
             for w_idx, start in enumerate(starts):
                 all_meta.append({**base_meta, "window_id": w_idx, "start_sample": start})
 
-            all_feature_chunks.append(feats.astype(np.float32))
+            all_feature_chunks.append(feats)
             all_labels.extend([label_int] * n_win)
 
         except Exception as e:
