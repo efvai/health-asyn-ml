@@ -30,7 +30,6 @@ from . import analysis
 
 # Import signal processing utilities
 from . import signal_processing
-from .signal_processing import compute_fft_spectrum, find_spectral_peaks
 
 # Import preprocessing utilities
 from . import preprocessing
@@ -51,8 +50,6 @@ __all__ = [
     'TimeDomainFeatures',
     'FrequencyDomainFeatures',
     'extract_features_for_ml',
-    'compute_fft_spectrum',
-    'find_spectral_peaks',
     'preprocessing',
     'ButterworthLPF',
 ]
