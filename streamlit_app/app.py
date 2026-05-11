@@ -25,7 +25,8 @@ from utils import (
     window_signal_chart,
     confusion_matrix_chart,
     correlation_heatmap,
-    preprocessing_preview_chart,
+    time_domain_chart,
+    window_frequency_chart,
     HF_REPO_ID,
     list_hf_datasets,
     download_hf_dataset,
@@ -44,8 +45,11 @@ st.title("ML Pipeline Debugger")
 PROJECT_ROOT = get_project_root()
 AVAILABLE_DATASETS = discover_datasets(PROJECT_ROOT)
 
-# ── LPF defaults — set once, owned by the Preprocessing tab ──────────────────
-for _key, _val in [("lpf_enabled", True), ("lpf_cutoff", 500), ("lpf_order", 4)]:
+# ── Shared defaults — set once before any tab renders ───────────────────────
+for _key, _val in [
+    ("lpf_enabled", True), ("lpf_cutoff", 500), ("lpf_order", 4),
+    ("win_size", 10000), ("win_overlap", 0.5),
+]:
     if _key not in st.session_state:
         st.session_state[_key] = _val
 
@@ -192,8 +196,21 @@ with tab_prep:
         st.selectbox("Order", [2, 4, 6, 8],
                      key="lpf_order", disabled=not st.session_state["lpf_enabled"])
 
-    st.info("These settings are applied during feature extraction in **3 · Feature Extraction**.")
+    st.info("LPF settings are applied during feature extraction in **3 · Feature Extraction**.")
 
+    # ── Windowing ─────────────────────────────────────────────────────────────
+    st.markdown("### Windowing")
+    st.caption("Shared with **3 · Feature Extraction**.")
+    col_win1, col_win2 = st.columns(2)
+    with col_win1:
+        st.number_input(
+            "Window size (samples)", min_value=256, max_value=100000,
+            step=256, key="win_size",
+        )
+    with col_win2:
+        st.slider("Overlap ratio", 0.0, 0.9, step=0.05, key="win_overlap")
+
+    # ── Before / After Preview ────────────────────────────────────────────────
     st.markdown("### Before / After Preview")
 
     try:
@@ -219,8 +236,27 @@ with tab_prep:
         if not sample_ids_for_sensor:
             sample_ids_for_sensor = sorted(set(f.get("sample_id", "") for f in files_meta))
 
+        # Build per-sample metadata lookup for enriched selectbox labels
+        _fs_key = "sample_rate_vibro_hz" if prep_sensor == "vibration" else "sample_rate_current_hz"
+        _sample_meta_lut: dict = {}
+        for _f in files_meta:
+            _sid = _f.get("sample_id", "")
+            if _sid and _sid not in _sample_meta_lut and _f.get("sensor_type") == prep_sensor:
+                _sample_meta_lut[_sid] = _f
+
+        def _fmt_sample_id(sid: str) -> str:
+            _m = _sample_meta_lut.get(sid, {})
+            _cls = _m.get("class", "?")
+            _ld = _m.get("load", "?")
+            _fq = _m.get("electrical_frequency_hz", "?")
+            _fv = _m.get(_fs_key, "?")
+            return f"{sid} | {_cls} | load={_ld} | {_fq}Hz | fs={_fv}Hz"
+
         if sample_ids_for_sensor:
-            sel_sample_id = st.selectbox("Sample ID", sample_ids_for_sensor, key="prep_sample_id")
+            sel_sample_id = st.selectbox(
+                "Sample ID", sample_ids_for_sensor, key="prep_sample_id",
+                format_func=_fmt_sample_id,
+            )
 
             if st.button("Load Sample for Preview", type="primary", key="btn_prep_preview"):
                 raw, raw_meta = cached_load_single_raw(train_path, sel_sample_id, prep_sensor)
@@ -229,6 +265,7 @@ with tab_prep:
                 else:
                     st.session_state["_prep_raw"] = raw
                     st.session_state["_prep_meta"] = raw_meta
+                    st.session_state["prep_win_start"] = 0
 
             if "_prep_raw" in st.session_state:
                 raw = st.session_state["_prep_raw"]
@@ -237,11 +274,8 @@ with tab_prep:
                     raw = raw[:, np.newaxis]
                 n_ch = raw.shape[1]
 
-                fs = float(
-                    raw_meta.get("sample_rate_vibro_hz")
-                    or raw_meta.get("sample_rate_current_hz")
-                    or 1.0
-                )
+                _fs_key_raw = "sample_rate_vibro_hz" if prep_sensor == "vibration" else "sample_rate_current_hz"
+                fs = float(raw_meta.get(_fs_key_raw) or 1.0)
 
                 if st.session_state["lpf_enabled"]:
                     from ml_toolbox import ButterworthLPF
@@ -257,26 +291,87 @@ with tab_prep:
                 else:
                     filtered = raw
 
-                col_ch, col_pts = st.columns(2)
-                with col_ch:
-                    ch_sel = st.selectbox(
-                        "Channel", list(range(n_ch)), format_func=lambda i: f"ch{i + 1}",
-                        key="prep_ch_sel",
-                    )
-                with col_pts:
-                    n_preview = st.slider("Preview points", 1000, 20000, 4000, 1000, key="prep_n_pts")
+                # Window parameters (shared with Feature Extraction tab)
+                n_samples = len(raw)
+                _win_size = int(st.session_state.get("win_size", 10000))
+                _overlap = float(st.session_state.get("win_overlap", 0.5))
+                _hop_size = max(1, int(_win_size * (1 - _overlap)))
+                _max_start = max(0, n_samples - _win_size)
 
-                fig_prep = preprocessing_preview_chart(raw, filtered, fs, ch_sel, n_preview)
-                st.pyplot(fig_prep, width="stretch")
-                plt.close(fig_prep)
+                # Clamp stored window start
+                _prep_win_start = max(0, min(
+                    int(st.session_state.get("prep_win_start", 0)), _max_start
+                ))
+                st.session_state["prep_win_start"] = _prep_win_start
 
-                _cls = raw_meta.get("class", "?")
-                _load = raw_meta.get("load", "?")
-                _freq = raw_meta.get("electrical_frequency_hz", "?")
-                st.caption(
-                    f"Sample: **{sel_sample_id}** | Class: {_cls} | "
-                    f"Load: {_load} | Freq: {_freq} Hz | fs: {fs:.0f} Hz"
+                # ── Channel selector ──────────────────────────────────────────
+                ch_sel = st.selectbox(
+                    "Channel", list(range(n_ch)), format_func=lambda i: f"ch{i + 1}",
+                    key="prep_ch_sel",
                 )
+
+                # ── Time domain ───────────────────────────────────────────────
+                st.markdown("#### Time domain")
+                fig_time = time_domain_chart(
+                    raw, filtered, fs, ch_sel, _prep_win_start, _win_size,
+                )
+                st.plotly_chart(fig_time, width='stretch')
+
+                # ── Frequency domain (windowed) ───────────────────────────────
+                st.markdown("#### Frequency domain — current window")
+
+                col_fm, col_np = st.columns(2)
+                with col_fm:
+                    freq_mode = st.radio(
+                        "Method", ["Welch", "FFT"],
+                        horizontal=True, key="prep_freq_mode",
+                    )
+                with col_np:
+                    nperseg = st.number_input(
+                        "nperseg (Welch)", min_value=256, max_value=65536,
+                        value=4096, step=256, key="prep_nperseg",
+                        disabled=(freq_mode != "Welch"),
+                    )
+
+                # Window info metrics
+                _win_end = min(_prep_win_start + _win_size, n_samples)
+                _total_wins = (_max_start // _hop_size + 1) if _hop_size > 0 else 1
+                _cur_idx = _prep_win_start // _hop_size if _hop_size > 0 else 0
+                wm1, wm2, wm3 = st.columns(3)
+                wm1.metric("Start sample", _prep_win_start)
+                wm2.metric("End sample", _win_end)
+                wm3.metric("Window", f"{_cur_idx + 1} / {_total_wins}")
+
+                # Navigation buttons + jump input
+                nav1, nav2, nav3 = st.columns([1, 1, 2])
+                with nav1:
+                    if st.button("⬅ Prev", key="btn_win_prev",
+                                 disabled=(_prep_win_start <= 0)):
+                        st.session_state["prep_win_start"] = max(0, _prep_win_start - _hop_size)
+                        st.rerun()
+                with nav2:
+                    if st.button("Next ➡", key="btn_win_next",
+                                 disabled=(_prep_win_start >= _max_start)):
+                        st.session_state["prep_win_start"] = min(_max_start, _prep_win_start + _hop_size)
+                        st.rerun()
+                with nav3:
+                    st.number_input(
+                        "Jump to sample", min_value=0, max_value=max(0, _max_start),
+                        step=_hop_size, key="prep_win_start",
+                    )
+
+                # Slice and plot frequency domain for current window
+                _s = _prep_win_start
+                _e = min(_s + _win_size, n_samples)
+                raw_win = raw[_s:_e, :]
+                filt_win = filtered[_s:_e, :]
+
+                if len(raw_win) > 0:
+                    fig_freq = window_frequency_chart(
+                        raw_win, filt_win, fs, ch_sel,
+                        freq_mode=freq_mode, nperseg=int(nperseg),
+                    )
+                    st.plotly_chart(fig_freq, width='stretch')
         else:
             st.info("No samples found in index.")
     else:
@@ -334,11 +429,13 @@ with tab_features:
 
     # ── Windowing settings ────────────────────────────────────────────────────
     st.markdown("### Windowing")
+    st.caption("Window size and overlap are configured in **2 · Preprocessing**.")
+    window_size = int(st.session_state.get("win_size", 10000))
+    overlap_ratio = float(st.session_state.get("win_overlap", 0.5))
     col_w1, col_w2 = st.columns(2)
     with col_w1:
-        window_size = st.number_input("Window size (samples)", min_value=256, max_value=100000,
-                                      value=10000, step=256, key="win_size")
-        overlap_ratio = st.slider("Overlap ratio", 0.0, 0.9, 0.5, 0.05, key="win_overlap")
+        st.metric("Window size (samples)", window_size)
+        st.metric("Overlap ratio", overlap_ratio)
     with col_w2:
         shuffle = st.toggle("Shuffle windows", value=True, key="win_shuffle")
         random_state = st.number_input("Random state", min_value=0, max_value=9999,

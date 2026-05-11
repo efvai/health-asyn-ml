@@ -28,6 +28,7 @@ openpyxl>=3.0.0
 
 # Streamlit interactive app
 streamlit>=1.35.0
+plotly>=5.0.0
 
 # HuggingFace Hub (dataset download)
 huggingface_hub>=0.20.0

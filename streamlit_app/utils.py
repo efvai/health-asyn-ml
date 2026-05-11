@@ -202,41 +202,188 @@ def preprocessing_preview_chart(
     filtered: np.ndarray,
     fs: float,
     channel: int,
-    n_points: int = 4000,
-) -> plt.Figure:
-    """Side-by-side time-domain and frequency-domain before/after plot."""
-    from scipy.signal import welch
+    freq_mode: str = "Welch",
+    nperseg: int = 4096,
+):
+    """Interactive side-by-side time-domain and frequency-domain before/after plot (plotly)."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
 
     if raw.ndim == 1:
         raw = raw[:, np.newaxis]
     if filtered.ndim == 1:
         filtered = filtered[:, np.newaxis]
 
-    n = min(n_points, len(raw))
+    t = np.arange(len(raw)) / fs
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=(
+            f"Time domain — ch{channel + 1}",
+            f"{freq_mode} spectrum — ch{channel + 1}",
+        ),
+    )
+
+    # Time domain — WebGL for large arrays
+    fig.add_trace(
+        go.Scattergl(x=t, y=raw[:, channel], name="Raw",
+                     line=dict(color="#2196F3", width=1), opacity=0.85),
+        row=1, col=1,
+    )
+    fig.add_trace(
+        go.Scattergl(x=t, y=filtered[:, channel], name="Filtered",
+                     line=dict(color="#F44336", width=1), opacity=0.85),
+        row=1, col=1,
+    )
+    fig.update_xaxes(title_text="Time (s)", row=1, col=1)
+    fig.update_yaxes(title_text="Amplitude", row=1, col=1)
+
+    # Frequency domain
+    sig_raw = raw[:, channel].astype(np.float64)
+    sig_fil = filtered[:, channel].astype(np.float64)
+    if freq_mode == "Welch":
+        from scipy.signal import welch as _welch
+        _nperseg = min(nperseg, len(sig_raw))
+        f_r, p_r = _welch(sig_raw, fs=fs, nperseg=_nperseg)
+        f_f, p_f = _welch(sig_fil, fs=fs, nperseg=_nperseg)
+        y_label = "PSD"
+    else:  # FFT with Hann window
+        _win_r = np.hanning(len(sig_raw))
+        _win_f = np.hanning(len(sig_fil))
+        f_r = np.fft.rfftfreq(len(sig_raw), d=1.0 / fs)
+        p_r = np.abs(np.fft.rfft(sig_raw * _win_r))
+        f_f = np.fft.rfftfreq(len(sig_fil), d=1.0 / fs)
+        p_f = np.abs(np.fft.rfft(sig_fil * _win_f))
+        y_label = "Magnitude"
+
+    fig.add_trace(
+        go.Scatter(x=f_r, y=p_r, name="Raw", showlegend=False,
+                   line=dict(color="#2196F3", width=1), opacity=0.85),
+        row=1, col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=f_f, y=p_f, name="Filtered", showlegend=False,
+                   line=dict(color="#F44336", width=1), opacity=0.85),
+        row=1, col=2,
+    )
+    fig.update_xaxes(title_text="Frequency (Hz)", row=1, col=2)
+    fig.update_yaxes(title_text=y_label, type="log", row=1, col=2)
+
+    fig.update_layout(
+        height=450,
+        margin=dict(t=50, b=10, l=50, r=20),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.25),
+    )
+    return fig
+
+
+def time_domain_chart(
+    raw: np.ndarray,
+    filtered: np.ndarray,
+    fs: float,
+    channel: int,
+    win_start: int,
+    win_size: int,
+):
+    """Full-signal time-domain plot with a shaded rectangle over the current window (Plotly).
+
+    raw / filtered : (n_samples, n_channels) float arrays.
+    The yellow band marks [win_start, win_start + win_size).
+    """
+    import plotly.graph_objects as go
+
+    if raw.ndim == 1:
+        raw = raw[:, np.newaxis]
+    if filtered.ndim == 1:
+        filtered = filtered[:, np.newaxis]
+
+    n = len(raw)
     t = np.arange(n) / fs
+    t_start = win_start / fs
+    t_end = min(win_start + win_size, n) / fs
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4))
+    fig = go.Figure()
+    fig.add_trace(go.Scattergl(
+        x=t, y=raw[:, channel], name="Raw",
+        line=dict(color="#2196F3", width=1), opacity=0.8,
+    ))
+    fig.add_trace(go.Scattergl(
+        x=t, y=filtered[:, channel], name="Filtered",
+        line=dict(color="#F44336", width=1), opacity=0.8,
+    ))
+    fig.add_vrect(
+        x0=t_start, x1=t_end,
+        fillcolor="rgba(255, 193, 7, 0.25)",
+        layer="below", line_width=0,
+        annotation_text="window", annotation_position="top left",
+        annotation_font_size=11,
+    )
+    fig.update_xaxes(title_text="Time (s)")
+    fig.update_yaxes(title_text="Amplitude")
+    fig.update_layout(
+        title=f"Time domain — ch{channel + 1}",
+        height=320,
+        margin=dict(t=45, b=10, l=50, r=20),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+    )
+    return fig
 
-    # Time domain
-    axes[0].plot(t, raw[:n, channel], color="#2196F3", linewidth=0.7, alpha=0.85, label="Raw")
-    axes[0].plot(t, filtered[:n, channel], color="#F44336", linewidth=0.7, alpha=0.85, label="Filtered")
-    axes[0].set_xlabel("Time (s)")
-    axes[0].set_ylabel("Amplitude")
-    axes[0].set_title(f"Time domain — ch{channel + 1}")
-    axes[0].legend()
 
-    # Frequency domain (Welch PSD)
-    nperseg = min(4096, len(raw))
-    f_r, p_r = welch(raw[:, channel].astype(np.float64), fs=fs, nperseg=nperseg)
-    f_f, p_f = welch(filtered[:, channel].astype(np.float64), fs=fs, nperseg=nperseg)
-    axes[1].semilogy(f_r, p_r, color="#2196F3", linewidth=0.8, alpha=0.85, label="Raw")
-    axes[1].semilogy(f_f, p_f, color="#F44336", linewidth=0.8, alpha=0.85, label="Filtered")
-    axes[1].set_xlabel("Frequency (Hz)")
-    axes[1].set_ylabel("PSD")
-    axes[1].set_title(f"Frequency domain (Welch PSD) — ch{channel + 1}")
-    axes[1].legend()
+def window_frequency_chart(
+    raw_window: np.ndarray,
+    filtered_window: np.ndarray,
+    fs: float,
+    channel: int,
+    freq_mode: str = "Welch",
+    nperseg: int = 4096,
+):
+    """Frequency-domain plot for a single pre-sliced window (Plotly).
 
-    plt.tight_layout()
+    raw_window / filtered_window : (win_size, n_channels) float arrays.
+    Applies Welch PSD or FFT-with-Hann exactly as the feature extraction pipeline does.
+    """
+    import plotly.graph_objects as go
+
+    if raw_window.ndim == 1:
+        raw_window = raw_window[:, np.newaxis]
+    if filtered_window.ndim == 1:
+        filtered_window = filtered_window[:, np.newaxis]
+
+    sig_r = raw_window[:, channel].astype(np.float64)
+    sig_f = filtered_window[:, channel].astype(np.float64)
+
+    if freq_mode == "Welch":
+        from scipy.signal import welch as _welch
+        _nperseg = min(nperseg, len(sig_r))
+        f_r, p_r = _welch(sig_r, fs=fs, nperseg=_nperseg)
+        f_f, p_f = _welch(sig_f, fs=fs, nperseg=_nperseg)
+        y_label = "PSD"
+    else:  # FFT with Hann window
+        hann_r = np.hanning(len(sig_r))
+        hann_f = np.hanning(len(sig_f))
+        f_r = np.fft.rfftfreq(len(sig_r), d=1.0 / fs)
+        p_r = np.abs(np.fft.rfft(sig_r * hann_r))
+        f_f = np.fft.rfftfreq(len(sig_f), d=1.0 / fs)
+        p_f = np.abs(np.fft.rfft(sig_f * hann_f))
+        y_label = "Magnitude"
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=f_r, y=p_r, name="Raw",
+        line=dict(color="#2196F3", width=1), opacity=0.85,
+    ))
+    fig.add_trace(go.Scatter(
+        x=f_f, y=p_f, name="Filtered",
+        line=dict(color="#F44336", width=1), opacity=0.85,
+    ))
+    fig.update_xaxes(title_text="Frequency (Hz)")
+    fig.update_yaxes(title_text=y_label, type="log")
+    fig.update_layout(
+        title=f"{freq_mode} spectrum — ch{channel + 1}  (window only)",
+        height=350,
+        margin=dict(t=45, b=10, l=50, r=20),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+    )
     return fig
 
 
