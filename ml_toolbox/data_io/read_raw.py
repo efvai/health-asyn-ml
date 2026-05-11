@@ -37,8 +37,10 @@ def read_raw(file_path: Union[str, Path], num_channels: int, dtype=np.float64) -
         total_samples = len(raw_data) // num_channels
         raw_data = raw_data[:total_samples * num_channels]
         
-        # Reshape to [samples, channels] - transpose equivalent to MATLAB
-        data = raw_data.reshape(num_channels, total_samples).T
+        # Data is interleaved by channel (ch0_t0, ch1_t0, ..., ch0_t1, ch1_t1, ...)
+        # C-order reshape(total_samples, num_channels) matches MATLAB's column-major
+        # reshape(RealChannelsQuantity, RealKadrsQuantity)
+        data = raw_data.reshape(total_samples, num_channels)
         
         return data
         
