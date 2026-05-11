@@ -51,6 +51,14 @@ for _key, _val in [
     ("lpf_enabled", True), ("lpf_cutoff", 500), ("lpf_order", 4),
     ("detrend_enabled", False),
     ("win_size", 10000), ("win_overlap", 0.5),
+    # Peak finder defaults
+    ("peak_enabled", False),
+    ("peak_prominence", 0.02),
+    ("peak_distance_hz", 2.0),
+    ("peak_n_harmonics", 5),
+    ("peak_dom_freq_min", 10.0),
+    ("peak_dom_freq_max", 60.0),
+    ("peak_tolerance_hz", 2.0),
 ]:
     if _key not in st.session_state:
         st.session_state[_key] = _val
@@ -373,13 +381,68 @@ with tab_prep:
                 _e = min(_s + _win_size, n_samples)
                 raw_win = raw[_s:_e, :]
                 filt_win = filtered[_s:_e, :]
-
+                
                 if len(raw_win) > 0:
-                    fig_freq = window_frequency_chart(
+                    _peak_settings = {
+                        "enabled": st.session_state["peak_enabled"],
+                        "prominence": st.session_state["peak_prominence"],
+                        "distance_hz": st.session_state["peak_distance_hz"],
+                        "n_harmonics": st.session_state["peak_n_harmonics"],
+                        "dom_freq_min": st.session_state["peak_dom_freq_min"],
+                        "dom_freq_max": st.session_state["peak_dom_freq_max"],
+                        "tolerance_hz": st.session_state["peak_tolerance_hz"],
+                    }
+                    _chart_result = window_frequency_chart(
                         raw_win, filt_win, fs, ch_sel,
                         freq_mode=freq_mode, nperseg=int(nperseg),
+                        peak_settings=_peak_settings,
                     )
-                    st.plotly_chart(fig_freq, width='stretch')
+                    with st.expander("Peak Finder Settings", expanded=st.session_state["peak_enabled"]):
+                        st.toggle("Enable peak overlay", key="peak_enabled")
+                        _pk_disabled = not st.session_state["peak_enabled"]
+                        pc1, pc2 = st.columns(2)
+                        with pc1:
+                            st.slider(
+                                "Prominence (fraction of max)", 0.001, 0.5, step=0.001,
+                                key="peak_prominence", disabled=_pk_disabled,
+                                help="Peaks must exceed this fraction of the spectrum maximum.",
+                            )
+                            st.slider(
+                                "Min peak distance (Hz)", 0.5, 50.0, step=0.5,
+                                key="peak_distance_hz", disabled=_pk_disabled,
+                            )
+                            st.number_input(
+                                "Harmonics to show", min_value=1, max_value=10,
+                                step=1, key="peak_n_harmonics", disabled=_pk_disabled,
+                            )
+                        with pc2:
+                            st.slider(
+                                "Dominant freq search min (Hz)", 1.0, 200.0, step=1.0,
+                                key="peak_dom_freq_min", disabled=_pk_disabled,
+                            )
+                            st.slider(
+                                "Dominant freq search max (Hz)", 1.0, 500.0, step=1.0,
+                                key="peak_dom_freq_max", disabled=_pk_disabled,
+                            )
+                            st.slider(
+                                "Harmonic match tolerance (Hz)", 0.5, 20.0, step=0.5,
+                                key="peak_tolerance_hz", disabled=_pk_disabled,
+                        )
+                    if st.session_state["peak_enabled"]:
+                        fig_freq, _dom_freq, _harmonics = _chart_result
+                        st.plotly_chart(fig_freq, width='stretch')
+                        with st.expander("Peak Analysis", expanded=True):
+                            if _dom_freq is not None:
+                                st.metric("Dominant frequency (f₀)", f"{_dom_freq:.2f} Hz")
+                            else:
+                                st.warning("No dominant frequency found in the specified range.")
+                            if _harmonics:
+                                import pandas as pd
+                                _hdf = pd.DataFrame(_harmonics)
+                                _hdf.columns = ["k", "Expected Hz", "Actual Hz", "Amplitude", "Peak found"]
+                                st.dataframe(_hdf.style.format({"Expected Hz": "{:.2f}", "Actual Hz": "{:.2f}", "Amplitude": "{:.4g}"}), width='stretch')
+                    else:
+                        st.plotly_chart(_chart_result, width='stretch')
         else:
             st.info("No samples found in index.")
     else:

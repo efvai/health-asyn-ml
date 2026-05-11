@@ -6,77 +6,60 @@ in motor health monitoring and fault diagnosis.
 """
 
 import numpy as np
-from typing import Dict, Tuple
-from scipy.fft import fft, fftfreq
-from scipy.signal import welch
+from typing import Dict
 import logging
 
 logger = logging.getLogger(__name__)
 
 class FrequencyDomainFeatures:
     """Extract frequency-domain features from signals."""
-    
+
     @staticmethod
-    def _apply_window(signal: np.ndarray, window_type: str = 'hann') -> np.ndarray:
-        """Apply windowing function to reduce spectral leakage."""
-        if window_type == 'hann':
-            window = np.hanning(len(signal))
-        elif window_type == 'hamming':
-            window = np.hamming(len(signal))
-        elif window_type == 'blackman':
-            window = np.blackman(len(signal))
-        elif window_type == 'none' or window_type is None:
-            window = np.ones(len(signal))  # No windowing
-        else:
-            # Default to Hann window for unknown types
-            window = np.hanning(len(signal))
-        
-        return signal * window
-    
-    @staticmethod
-    def fft_features(signal: np.ndarray, sampling_rate: float, window_type: str = 'hann') -> Tuple[Dict[str, float], np.ndarray, np.ndarray]:
+    def fft_features(signal: np.ndarray, sampling_rate: float) -> Dict[str, float]:
         """
         Extract FFT-based features with windowing to reduce spectral leakage.
         
         Args:
             signal: Input signal array
             sampling_rate: Sampling rate in Hz
-            window_type: Window function type ('hann', 'hamming', 'blackman', 'none'). Default is 'hann'
         
         Returns:
             Tuple of (features_dict, fft_magnitude, fft_frequencies)
         """
         features = {}
-        
-        # Apply windowing to reduce spectral leakage
-        #windowed_signal = FrequencyDomainFeatures._apply_window(signal, window_type)
-        # Compute FFT
-        #fft_vals = np.array(fft(windowed_signal))
-        #freqs = fftfreq(len(windowed_signal), 1/sampling_rate)
-        
-        # Try to welch
-        fft_freqs, fft_magnitude = welch(signal, fs=sampling_rate, nperseg=2048)
 
-        # Only positive frequencies
-        #n_positive = len(freqs) // 2
-        #fft_magnitude = np.abs(fft_vals[:n_positive])
-        #fft_freqs = freqs[:n_positive]
-                 
+        # Hann-windowed single-sided FFT (matches preprocessing preview)
+        hann = np.hanning(len(signal))
+        fft_freqs = np.fft.rfftfreq(len(signal), d=1.0 / sampling_rate)
+        fft_magnitude = np.abs(np.fft.rfft(signal * hann)) / np.sum(hann)
+        fft_magnitude = fft_magnitude.copy()
+        fft_magnitude[1:-1] *= 2  # compensate for dropped negative freqs (except DC and Nyquist)
+
         # Spectral features
         features['spectral_centroid'] = np.sum(fft_freqs * fft_magnitude) / np.sum(fft_magnitude)
         variance = np.sum(((fft_freqs - features['spectral_centroid'])**2) * fft_magnitude) / np.sum(fft_magnitude)
         features['spectral_spread'] = np.sqrt(variance)
-        
-        # Spectral energy
         features['spectral_rolloff'] = FrequencyDomainFeatures._spectral_rolloff(fft_magnitude, fft_freqs, 0.85)
-        
-        # Spectral entropy - measure of spectral complexity/randomness
+
         from scipy.stats import entropy
         se_scipy = entropy(fft_magnitude + 1e-12, base=2)
-        features['spectral_entropy'] = float(se_scipy) / np.log2(len(fft_magnitude)) 
-        
-        return features, fft_magnitude, fft_freqs
-    
+        features['spectral_entropy'] = float(se_scipy) / np.log2(len(fft_magnitude))
+
+        # Harmonic ratio features: A2/A1 and A3/A1
+        from ml_toolbox.signal_processing import find_dominant_frequency, find_harmonics
+        dom_freq = find_dominant_frequency(fft_freqs, fft_magnitude)
+        if dom_freq is not None:
+            harmonics = find_harmonics(fft_freqs, fft_magnitude, f0=dom_freq, n_harmonics=3)
+            amps = {h['harmonic_n']: h['amplitude'] for h in harmonics}
+            a1 = amps.get(1, 0.0)
+            features['a2_a1'] = float(amps.get(2, 0.0) / a1) if a1 > 0 else 0.0
+            features['a3_a1'] = float(amps.get(3, 0.0) / a1) if a1 > 0 else 0.0
+        else:
+            features['a2_a1'] = 0.0
+            features['a3_a1'] = 0.0
+
+        return features
+
     @staticmethod
     def _spectral_rolloff(magnitude: np.ndarray, freqs: np.ndarray, threshold: float = 0.85) -> float:
         """Calculate spectral rolloff frequency."""

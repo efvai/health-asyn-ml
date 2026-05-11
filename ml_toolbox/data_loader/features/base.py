@@ -19,6 +19,8 @@ FREQ_FEATURES: Tuple[str, ...] = (
     "spectral_spread",
     "spectral_rolloff",
     "spectral_entropy",
+    "a2_a1",
+    "a3_a1",
 )
 
 ALL_FEATURES: Tuple[str, ...] = TIME_FEATURES + FREQ_FEATURES

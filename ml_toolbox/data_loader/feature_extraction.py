@@ -122,7 +122,7 @@ class FeatureExtractor:
                     "sampling_rate is required for frequency-domain features. "
                     "Resolve it from metadata before extraction."
                 )
-            fft_result, _, _ = self.frequency_domain.fft_features(signal, sampling_rate)
+            fft_result = self.frequency_domain.fft_features(signal, sampling_rate)
             for fname in freq_requested:
                 if fname in fft_result:
                     features[f"{channel_name}_{fname}"] = fft_result[fname]

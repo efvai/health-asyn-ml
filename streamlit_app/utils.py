@@ -348,11 +348,19 @@ def window_frequency_chart(
     channel: int,
     freq_mode: str = "Welch",
     nperseg: int = 4096,
+    peak_settings: Optional[Dict[str, Any]] = None,
 ):
     """Frequency-domain plot for a single pre-sliced window (Plotly).
 
     raw_window / filtered_window : (win_size, n_channels) float arrays.
     Applies Welch PSD or FFT-with-Hann exactly as the feature extraction pipeline does.
+
+    peak_settings : optional dict with keys:
+      enabled (bool), prominence (float), distance_hz (float),
+      n_harmonics (int), dom_freq_min (float), dom_freq_max (float),
+      tolerance_hz (float).
+      When provided and ``enabled`` is True the return value is
+      ``(fig, dominant_freq, harmonics_list)``; otherwise just ``fig``.
     """
     import plotly.graph_objects as go
 
@@ -394,11 +402,108 @@ def window_frequency_chart(
     fig.update_yaxes(title_text=y_label, type="log")
     fig.update_layout(
         title=f"{freq_mode} spectrum — ch{channel + 1}  (window only)",
-        height=350,
+        height=400,
         margin=dict(t=45, b=10, l=50, r=20),
         legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
     )
+
+    if peak_settings and peak_settings.get("enabled"):
+        fig, dominant_freq, harmonics = add_peak_overlays(fig, f_f, p_f, peak_settings)
+        return fig, dominant_freq, harmonics
+
     return fig
+
+
+def add_peak_overlays(
+    fig,
+    freqs: np.ndarray,
+    amplitudes: np.ndarray,
+    peak_settings: Dict[str, Any],
+):
+    """Overlay spectral peaks, dominant frequency, and harmonics on a Plotly figure.
+
+    Operates on the filtered signal's spectrum.  Intended to be called from
+    :func:`window_frequency_chart` but can be used standalone.
+
+    Parameters
+    ----------
+    fig : a ``plotly.graph_objects.Figure`` (single-axes, no subplots rows/cols).
+    freqs, amplitudes : frequency bins and amplitudes of the spectrum to analyse.
+    peak_settings : dict with keys
+      ``prominence``, ``distance_hz``, ``n_harmonics``,
+      ``dom_freq_min``, ``dom_freq_max``, ``tolerance_hz``.
+
+    Returns
+    -------
+    ``(fig, dominant_freq, harmonics_list)``
+    """
+    import sys
+    from pathlib import Path
+    _root = str(Path(__file__).parent.parent)
+    if _root not in sys.path:
+        sys.path.insert(0, _root)
+    from ml_toolbox.signal_processing import (
+        find_spectral_peaks,
+        find_dominant_frequency,
+        find_harmonics,
+    )
+    import plotly.graph_objects as go
+
+    prominence = float(peak_settings.get("prominence", 0.02))
+    distance_hz = float(peak_settings.get("distance_hz", 2.0))
+    n_harmonics = int(peak_settings.get("n_harmonics", 5))
+    dom_freq_min = float(peak_settings.get("dom_freq_min", 10.0))
+    dom_freq_max = float(peak_settings.get("dom_freq_max", 60.0))
+    tolerance_hz = float(peak_settings.get("tolerance_hz", 2.0))
+
+    # ── All detected peaks ────────────────────────────────────────────────────
+    peaks = find_spectral_peaks(freqs, amplitudes, prominence=prominence, distance_hz=distance_hz)
+    if len(peaks["frequencies"]) > 0:
+        fig.add_trace(go.Scatter(
+            x=peaks["frequencies"],
+            y=peaks["amplitudes"],
+            mode="markers",
+            name="Peaks",
+            marker=dict(symbol="triangle-up", size=9, color="#FF9800", line=dict(width=1, color="#E65100")),
+            hovertemplate="<b>Peak</b><br>f = %{x:.2f} Hz<br>amp = %{y:.4g}<extra></extra>",
+        ))
+
+    # ── Dominant frequency ────────────────────────────────────────────────────
+    dominant_freq = find_dominant_frequency(
+        freqs, amplitudes, freq_min=dom_freq_min, freq_max=dom_freq_max
+    )
+
+    harmonics = []
+    if dominant_freq is not None:
+        fig.add_vline(
+            x=dominant_freq,
+            line_width=2,
+            line_dash="solid",
+            line_color="#4CAF50",
+            annotation_text=f"f₀={dominant_freq:.1f} Hz",
+            annotation_position="top right",
+            annotation_font=dict(size=11, color="#4CAF50"),
+        )
+
+        # ── Harmonics ─────────────────────────────────────────────────────────
+        harmonics = find_harmonics(
+            freqs, amplitudes, f0=dominant_freq,
+            n_harmonics=n_harmonics, tolerance_hz=tolerance_hz,
+            prominence=prominence, distance_hz=distance_hz,
+        )
+        for h in harmonics[1:]:  # skip k=1 (already shown as f₀)
+            color = "#4CAF50" if h["peak_found"] else "#9E9E9E"
+            fig.add_vline(
+                x=h["expected_hz"],
+                line_width=1,
+                line_dash="dash",
+                line_color=color,
+                annotation_text=f"{h['harmonic_n']}·f₀",
+                annotation_position="top right",
+                annotation_font=dict(size=9, color=color),
+            )
+
+    return fig, dominant_freq, harmonics
 
 
 def window_signal_chart(window: np.ndarray, channel: int, fs: float = 1.0, title: str = "") -> plt.Figure:

@@ -11,7 +11,7 @@ prep_pipeline = pp.PreprocessorPipeline([
     pp.ButterworthLPF(cutoff_hz=500, order=4),
 ])
 
-loader = DataLoader(Path("data_set_4"))
+loader = DataLoader(Path("data_set_6"))
 data, meta = loader.load_batch(preprocessor=prep_pipeline)
-stats = resample_dataset(data, meta, target_fs=2000.0, output_path=Path("data_set_4_2khz_float32"))
+stats = resample_dataset(data, meta, target_fs=2000.0, output_path=Path("data_set_6_2khz_float32"))
 print(stats)
