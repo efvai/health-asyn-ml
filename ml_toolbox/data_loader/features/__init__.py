@@ -12,13 +12,11 @@ The modular design allows for easy extension and reuse of feature types.
 try:
     from .time_domain import TimeDomainFeatures
     from .frequency_domain import FrequencyDomainFeatures
-    from .envelope import HilbertEnvelopeFeatures
     from .base import FeatureConfig, FeatureFamilyConfig
     
     __all__ = [
         'TimeDomainFeatures',
         'FrequencyDomainFeatures', 
-        'HilbertEnvelopeFeatures',
         'FeatureConfig',
         'FeatureFamilyConfig'
     ]

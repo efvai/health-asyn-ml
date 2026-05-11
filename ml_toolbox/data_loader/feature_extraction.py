@@ -17,7 +17,6 @@ import logging
 from .features import (
     TimeDomainFeatures,
     FrequencyDomainFeatures,
-    HilbertEnvelopeFeatures,
     FeatureConfig,
 )
 
@@ -65,7 +64,6 @@ class FeatureExtractor:
         self.config = config
         self.time_domain = TimeDomainFeatures()
         self.frequency_domain = FrequencyDomainFeatures()
-        self.hilbert_envelope = HilbertEnvelopeFeatures()
 
     def extract_features(
         self,
@@ -90,18 +88,6 @@ class FeatureExtractor:
         if self.config.time_domain:
             time_features = self.time_domain.basic_statistics(signal)
             features.update({f"{channel_name}_{k}": v for k, v in time_features.items()})
-
-        if self.config.hilbert_envelope:
-            hilbert_params = self.config.get_params("hilbert_envelope")
-            allowed_keys = {"bandpass_low", "bandpass_high", "expected_carrier", "carrier_bandwidth"}
-            hilbert_kwargs = {
-                key: hilbert_params[key] for key in allowed_keys if key in hilbert_params
-            }
-            hilbert_features = self.hilbert_envelope.hilbert_envelope_features(
-                signal,
-                **hilbert_kwargs
-            )
-            features.update({f"{channel_name}_{k}": v for k, v in hilbert_features.items()})
 
         # Frequency domain features
         if self.config.frequency_domain:

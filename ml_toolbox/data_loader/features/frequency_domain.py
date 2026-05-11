@@ -5,8 +5,6 @@ This module provides FFT-based spectral features commonly used
 in motor health monitoring and fault diagnosis.
 """
 
-from statistics import variance
-
 import numpy as np
 from typing import Dict, Tuple
 from scipy.fft import fft, fftfreq
@@ -86,53 +84,4 @@ class FrequencyDomainFeatures:
         cumulative_energy = np.cumsum(magnitude**2)
         rolloff_idx = np.where(cumulative_energy >= threshold * total_energy)[0]
         return float(freqs[rolloff_idx[0]]) if len(rolloff_idx) > 0 else float(freqs[-1])
-    
-    @staticmethod
-    def spectral_analysis_features(spectrum: Dict) -> Dict[str, float]:
-        """
-        Extract spectral analysis features from a spectrum dictionary.
-        
-        Args:
-            spectrum: Dictionary with 'freqs' and 'magnitude' keys
-            
-        Returns:
-            Dictionary of spectral features
-        """
-        # Placeholder. TODO: impement spectral features for envelope spectrum     
-        return {}
-    
-    @staticmethod
-    def peak_analysis_features(spectrum: Dict, peaks: Dict, peak_cutoff: float = 200.0) -> Dict[str, float]:
-        """
-        Extract peak analysis features from spectrum and detected peaks.
-        
-        Args:
-            spectrum: Dictionary with 'freqs' and 'magnitude' keys
-            peaks: Dictionary with 'peak_freqs', 'peak_magnitudes', 'peak_indices' keys
-            peak_cutoff: Frequency cutoff for peak analysis (Hz)
-            
-        Returns:
-            Dictionary of peak analysis features
-        """    
-        # Placeholder. TODO: implement peak-based features.
-        return {}
-    
-    @staticmethod
-    def harmonic_analysis_features(spectrum: Dict, peaks: Dict, f0: float, 
-                                 max_harmonics: int = 5, tolerance_factor: float = 0.1) -> Dict[str, float]:
-        """
-        Compute THD-like harmonic analysis features using detected peaks.
-        
-        Args:
-            spectrum: Spectrum dictionary with 'freqs' and 'magnitude'
-            peaks: Peaks dictionary with 'peak_freqs' and 'peak_magnitudes'
-            f0: Fundamental frequency in Hz
-            max_harmonics: Maximum number of harmonics to analyze
-            tolerance_factor: Relative tolerance for harmonic matching (e.g., 0.1 = 10%)
-            
-        Returns:
-            Dictionary of harmonic features
-        """
-        # Placeholder. TODO: implement harmonic analysis features.    
-        return {}
-    
+      

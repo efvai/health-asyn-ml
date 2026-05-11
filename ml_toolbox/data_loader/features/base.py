@@ -6,9 +6,6 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Dict, List, Optional
 import copy
 
-ENV_CARRIER_FREQUENCY = 1670.0    # Hz - Expected carrier frequency for Hilbert envelope analysis
-
-
 @dataclass
 class FeatureFamilyConfig:
     """Container for per-feature-family configuration."""
@@ -26,13 +23,6 @@ def _default_family_config() -> Dict[str, FeatureFamilyConfig]:
     return {
         "time_domain": FeatureFamilyConfig(enabled=True, params={"channels": None}),
         "frequency_domain": FeatureFamilyConfig(enabled=False, params={"window_type": "hann"}),
-        "hilbert_envelope": FeatureFamilyConfig(
-            enabled=True,
-            params={
-                "expected_carrier": ENV_CARRIER_FREQUENCY,
-                "carrier_bandwidth": 50.0,
-            },
-        )
     }
 
 
@@ -57,11 +47,7 @@ class FeatureConfig:
             "selected_channels": None,
             "families": {
                 "time_domain": {"enabled": True},
-                "frequency_domain": {"enabled": False},
-                "hilbert_envelope": {
-                    "enabled": True,
-                    "params": {"expected_carrier": ENV_CARRIER_FREQUENCY},
-                },
+                "frequency_domain": {"enabled": False}
             },
         },
         "vibration": {
@@ -71,8 +57,7 @@ class FeatureConfig:
                 "frequency_domain": {
                     "enabled": True,
                     "params": {"window_type": "hann"},
-                },
-                "hilbert_envelope": {"enabled": False},
+                }
             },
         },
     }
@@ -167,14 +152,6 @@ class FeatureConfig:
     @frequency_domain.setter
     def frequency_domain(self, value: bool) -> None:
         self.set_family("frequency_domain", enabled=value)
-
-    @property
-    def hilbert_envelope(self) -> bool:
-        return self.is_enabled("hilbert_envelope")
-
-    @hilbert_envelope.setter
-    def hilbert_envelope(self, value: bool) -> None:
-        self.set_family("hilbert_envelope", enabled=value)
 
     # -- sensor profiles ----------------------------------------------------------------------
     def apply_sensor_profile(self, sensor_type: str, *, override: bool = False) -> None:

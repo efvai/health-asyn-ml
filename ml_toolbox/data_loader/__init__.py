@@ -13,11 +13,7 @@ from .feature_extraction import (
 )
 from .features import (
     FeatureConfig, FeatureFamilyConfig,
-    TimeDomainFeatures, FrequencyDomainFeatures, HilbertEnvelopeFeatures
-)
-
-from .envelope_analyzer import (
-    HilbertEnvelopeAnalyzer, EnvelopeConfig
+    TimeDomainFeatures, FrequencyDomainFeatures
 )
 
 __all__ = [
@@ -33,9 +29,6 @@ __all__ = [
     'FeatureExtractor',
     'TimeDomainFeatures',
     'FrequencyDomainFeatures',
-    'HilbertEnvelopeFeatures',
     'FeatureFamilyConfig',
     'extract_features_for_ml',
-    'HilbertEnvelopeAnalyzer',
-    'EnvelopeConfig'
 ]

@@ -22,11 +22,7 @@ from .data_loader.feature_extraction import (
     FeatureExtractor, extract_features_for_ml
 )
 from .data_loader.features import (
-    FeatureConfig, TimeDomainFeatures, FrequencyDomainFeatures, HilbertEnvelopeFeatures
-)
-
-from .data_loader.envelope_analyzer import (
-    HilbertEnvelopeAnalyzer, EnvelopeConfig
+    FeatureConfig, TimeDomainFeatures, FrequencyDomainFeatures
 )
 
 # Import analysis modules
@@ -54,11 +50,7 @@ __all__ = [
     'FeatureExtractor',
     'TimeDomainFeatures',
     'FrequencyDomainFeatures',
-    'HilbertEnvelopeFeatures',
     'extract_features_for_ml',
-    'extract_categorical_features',
-    'HilbertEnvelopeAnalyzer',
-    'EnvelopeConfig',
     'compute_fft_spectrum',
     'find_spectral_peaks',
     'preprocessing',

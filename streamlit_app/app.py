@@ -459,8 +459,6 @@ with tab_features:
         enable_time = st.toggle("Time domain", value=True, key="feat_time")
         enable_freq = st.toggle("Frequency domain", value=(sensor_type == "vibration"),
                                 key="feat_freq")
-        enable_hilbert = st.toggle("Hilbert envelope", value=(sensor_type == "current"),
-                                   key="feat_hilbert")
 
     if st.button("Extract Train Features", type="primary", key="btn_extract_train",
                  disabled=len(_train_files) == 0):
@@ -473,8 +471,6 @@ with tab_features:
             feat_conf.disable("time_domain")
         if not enable_freq:
             feat_conf.disable("frequency_domain")
-        if not enable_hilbert:
-            feat_conf.disable("hilbert_envelope")
 
         _progress_bar = st.progress(0)
         _status_text = st.empty()
