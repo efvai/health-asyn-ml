@@ -12,13 +12,12 @@ The modular design allows for easy extension and reuse of feature types.
 try:
     from .time_domain import TimeDomainFeatures
     from .frequency_domain import FrequencyDomainFeatures
-    from .base import FeatureConfig, FeatureFamilyConfig
+    from .base import FeatureConfig
     
     __all__ = [
         'TimeDomainFeatures',
         'FrequencyDomainFeatures', 
         'FeatureConfig',
-        'FeatureFamilyConfig'
     ]
 except ImportError as e:
     # Handle potential import errors gracefully

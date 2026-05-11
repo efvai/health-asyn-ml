@@ -180,10 +180,10 @@ def extract_features_lazy(
 
     # ── Prepare feature config ────────────────────────────────────────────────
     if feature_config is None:
-        feature_config = FeatureConfig.for_sensor(sensor_type)
-    else:
-        feature_config = feature_config.copy()
-        feature_config.apply_sensor_profile(sensor_type, override=False)
+        raise ValueError(
+            "feature_config is required. "
+            "Example: FeatureConfig(features=['ch1_rms', 'ch2_skewness'])"
+        )
 
     step_size = max(1, int(window_size * (1 - overlap_ratio)))
     dm = dataset_manager if dataset_manager is not None else DatasetManager(dataset_path)

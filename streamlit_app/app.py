@@ -443,34 +443,39 @@ with tab_features:
 
     # ── Feature configuration ─────────────────────────────────────────────────
     st.markdown("### Feature Configuration")
-    col_fc1, col_fc2 = st.columns(2)
-    with col_fc1:
-        _default_sensor_idx = 0
-        if sel_sensor_types and "current" in sel_sensor_types and "vibration" not in sel_sensor_types:
-            _default_sensor_idx = 1
-        sensor_type = st.selectbox("Sensor type", ["vibration", "current"],
-                                   index=_default_sensor_idx, key="feat_sensor_type")
-        _max_ch = 4 if sensor_type == "vibration" else 2
-        _all_ch_keys = [f"ch{i + 1}" for i in range(_max_ch)]
-        sel_channels = st.multiselect("Selected channels", _all_ch_keys,
-                                      default=_all_ch_keys, key="feat_channels")
-    with col_fc2:
-        st.markdown("**Feature families**")
-        enable_time = st.toggle("Time domain", value=True, key="feat_time")
-        enable_freq = st.toggle("Frequency domain", value=(sensor_type == "vibration"),
-                                key="feat_freq")
+
+    _TIME_FEATURES = ["rms", "skewness", "kurtosis", "crest_factor", "form_factor"]
+    _FREQ_FEATURES = ["spectral_centroid", "spectral_spread", "spectral_rolloff", "spectral_entropy"]
+    _ALL_FEAT_NAMES = _TIME_FEATURES + _FREQ_FEATURES
+
+    _default_sensor_idx = 0
+    if sel_sensor_types and "current" in sel_sensor_types and "vibration" not in sel_sensor_types:
+        _default_sensor_idx = 1
+    sensor_type = st.selectbox("Sensor type", ["vibration", "current"],
+                               index=_default_sensor_idx, key="feat_sensor_type")
+
+    _max_ch = 4 if sensor_type == "vibration" else 2
+    _all_ch_keys = [f"ch{i + 1}" for i in range(_max_ch)]
+
+    _default_features = [f"{ch}_{feat}" for ch in _all_ch_keys for feat in _ALL_FEAT_NAMES]
+    _all_feature_options = _default_features
+
+    sel_features = st.multiselect(
+        "Features  (format: channel_featurename)",
+        options=_all_feature_options,
+        default=_default_features,
+        key="feat_features",
+        help=(
+            "Select which features to compute. "
+            "Time-domain: rms, skewness, kurtosis, crest_factor, form_factor. "
+            "Frequency-domain: spectral_centroid, spectral_spread, spectral_rolloff, spectral_entropy."
+        ),
+    )
 
     if st.button("Extract Train Features", type="primary", key="btn_extract_train",
-                 disabled=len(_train_files) == 0):
+                 disabled=not sel_features or len(_train_files) == 0):
         from ml_toolbox.data_loader import FeatureConfig
-        feat_conf = FeatureConfig(
-            sensor_type=sensor_type,
-            selected_channels=sel_channels if sel_channels else None,
-        )
-        if not enable_time:
-            feat_conf.disable("time_domain")
-        if not enable_freq:
-            feat_conf.disable("frequency_domain")
+        feat_conf = FeatureConfig(features=sel_features)
 
         _progress_bar = st.progress(0)
         _status_text = st.empty()
@@ -588,15 +593,12 @@ with tab_train:
             _train_label_map = st.session_state[S.LABEL_MAP]
             _class_to_int = {v: k for k, v in _train_label_map.items()}
             _test_sensor = st.session_state.get("feat_sensor_type", "vibration")
-            _test_channels = st.session_state.get("feat_channels") or None
+            _sel_features = st.session_state.get("feat_features") or []
 
-            _fc = FeatureConfig(sensor_type=_test_sensor, selected_channels=_test_channels)
-            if not st.session_state.get("feat_time", True):
-                _fc.disable("time_domain")
-            if not st.session_state.get("feat_freq", True):
-                _fc.disable("frequency_domain")
-            if not st.session_state.get("feat_hilbert", False):
-                _fc.disable("hilbert_envelope")
+            _fc = FeatureConfig(features=_sel_features) if _sel_features else None
+            if _fc is None:
+                st.error("No features selected — configure features in 3 · Feature Extraction first.")
+                st.stop()
 
             _pb = st.progress(0)
             _st_txt = st.empty()

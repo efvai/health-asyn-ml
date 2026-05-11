@@ -12,7 +12,7 @@ from .feature_extraction import (
     FeatureExtractor, extract_features_for_ml
 )
 from .features import (
-    FeatureConfig, FeatureFamilyConfig,
+    FeatureConfig,
     TimeDomainFeatures, FrequencyDomainFeatures
 )
 
@@ -29,6 +29,5 @@ __all__ = [
     'FeatureExtractor',
     'TimeDomainFeatures',
     'FrequencyDomainFeatures',
-    'FeatureFamilyConfig',
     'extract_features_for_ml',
 ]

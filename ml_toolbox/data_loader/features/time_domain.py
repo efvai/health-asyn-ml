@@ -21,8 +21,7 @@ class TimeDomainFeatures:
         features = {}
         
         # Basic statistics
-        #features['rms'] = np.sqrt(np.mean(signal**2))
-        #features['ptp'] = np.ptp(signal)
+        features['rms'] = np.sqrt(np.mean(signal**2))
         features['skewness'] = stats.skew(signal)
         features['kurtosis'] = stats.kurtosis(signal)
     
