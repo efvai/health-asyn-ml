@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import state as S
+from ml_toolbox.data_loader import FeatureConfig, TIME_FEATURES, FREQ_FEATURES
 from utils import (
     get_project_root,
     discover_datasets,
@@ -444,10 +445,6 @@ with tab_features:
     # ── Feature configuration ─────────────────────────────────────────────────
     st.markdown("### Feature Configuration")
 
-    _TIME_FEATURES = ["rms", "skewness", "kurtosis", "crest_factor", "form_factor"]
-    _FREQ_FEATURES = ["spectral_centroid", "spectral_spread", "spectral_rolloff", "spectral_entropy"]
-    _ALL_FEAT_NAMES = _TIME_FEATURES + _FREQ_FEATURES
-
     _default_sensor_idx = 0
     if sel_sensor_types and "current" in sel_sensor_types and "vibration" not in sel_sensor_types:
         _default_sensor_idx = 1
@@ -457,24 +454,61 @@ with tab_features:
     _max_ch = 4 if sensor_type == "vibration" else 2
     _all_ch_keys = [f"ch{i + 1}" for i in range(_max_ch)]
 
-    _default_features = [f"{ch}_{feat}" for ch in _all_ch_keys for feat in _ALL_FEAT_NAMES]
-    _all_feature_options = _default_features
+    _col_ch, _col_td, _col_fd = st.columns(3)
+    with _col_ch:
+        st.markdown("**Channels**")
+        _btn_ch_all, _btn_ch_none = st.columns(2)
+        if _btn_ch_all.button("All", key="fc_ch_all"):
+            for _c in _all_ch_keys:
+                st.session_state[f"fc_{_c}"] = True
+            st.rerun()
+        if _btn_ch_none.button("None", key="fc_ch_none"):
+            for _c in _all_ch_keys:
+                st.session_state[f"fc_{_c}"] = False
+            st.rerun()
+        for _c in _all_ch_keys:
+            st.checkbox(_c, value=True, key=f"fc_{_c}")
 
-    sel_features = st.multiselect(
-        "Features  (format: channel_featurename)",
-        options=_all_feature_options,
-        default=_default_features,
-        key="feat_features",
-        help=(
-            "Select which features to compute. "
-            "Time-domain: rms, skewness, kurtosis, crest_factor, form_factor. "
-            "Frequency-domain: spectral_centroid, spectral_spread, spectral_rolloff, spectral_entropy."
-        ),
+    with _col_td:
+        st.markdown("**Time-domain**")
+        _btn_td_all, _btn_td_none = st.columns(2)
+        if _btn_td_all.button("All", key="fc_td_all"):
+            for _f in TIME_FEATURES:
+                st.session_state[f"fc_td_{_f}"] = True
+            st.rerun()
+        if _btn_td_none.button("None", key="fc_td_none"):
+            for _f in TIME_FEATURES:
+                st.session_state[f"fc_td_{_f}"] = False
+            st.rerun()
+        for _f in TIME_FEATURES:
+            st.checkbox(_f, value=True, key=f"fc_td_{_f}")
+
+    with _col_fd:
+        st.markdown("**Frequency-domain**")
+        _btn_fd_all, _btn_fd_none = st.columns(2)
+        if _btn_fd_all.button("All", key="fc_fd_all"):
+            for _f in FREQ_FEATURES:
+                st.session_state[f"fc_fd_{_f}"] = True
+            st.rerun()
+        if _btn_fd_none.button("None", key="fc_fd_none"):
+            for _f in FREQ_FEATURES:
+                st.session_state[f"fc_fd_{_f}"] = False
+            st.rerun()
+        for _f in FREQ_FEATURES:
+            st.checkbox(_f, value=True, key=f"fc_fd_{_f}")
+
+    _sel_channels = [_c for _c in _all_ch_keys if st.session_state.get(f"fc_{_c}", True)]
+    _sel_td = [_f for _f in TIME_FEATURES if st.session_state.get(f"fc_td_{_f}", True)]
+    _sel_fd = [_f for _f in FREQ_FEATURES if st.session_state.get(f"fc_fd_{_f}", True)]
+    _sel_feat_names = _sel_td + _sel_fd
+    sel_features = [f"{ch}_{feat}" for ch in _sel_channels for feat in _sel_feat_names]
+    st.caption(
+        f"**{len(_sel_channels)}** channels \u00d7 **{len(_sel_feat_names)}** features "
+        f"= **{len(sel_features)}** feature columns"
     )
 
     if st.button("Extract Train Features", type="primary", key="btn_extract_train",
                  disabled=not sel_features or len(_train_files) == 0):
-        from ml_toolbox.data_loader import FeatureConfig
         feat_conf = FeatureConfig(features=sel_features)
 
         _progress_bar = st.progress(0)
@@ -588,12 +622,15 @@ with tab_train:
 
         if st.button("Extract Test Features", type="primary", key="btn_test_extract",
                      disabled=len(_test_files) == 0):
-            from ml_toolbox.data_loader import FeatureConfig
-
             _train_label_map = st.session_state[S.LABEL_MAP]
             _class_to_int = {v: k for k, v in _train_label_map.items()}
             _test_sensor = st.session_state.get("feat_sensor_type", "vibration")
-            _sel_features = st.session_state.get("feat_features") or []
+            _t_max_ch = 4 if _test_sensor == "vibration" else 2
+            _t_all_ch_keys = [f"ch{i + 1}" for i in range(_t_max_ch)]
+            _t_channels = [_c for _c in _t_all_ch_keys if st.session_state.get(f"fc_{_c}", True)]
+            _t_td = [_f for _f in TIME_FEATURES if st.session_state.get(f"fc_td_{_f}", True)]
+            _t_fd = [_f for _f in FREQ_FEATURES if st.session_state.get(f"fc_fd_{_f}", True)]
+            _sel_features = [f"{ch}_{feat}" for ch in _t_channels for feat in (_t_td + _t_fd)]
 
             _fc = FeatureConfig(features=_sel_features) if _sel_features else None
             if _fc is None:

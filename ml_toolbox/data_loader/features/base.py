@@ -3,7 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
+
+
+TIME_FEATURES: Tuple[str, ...] = (
+    "rms",
+    "skewness",
+    "kurtosis",
+    "crest_factor",
+    "form_factor",
+)
+
+FREQ_FEATURES: Tuple[str, ...] = (
+    "spectral_centroid",
+    "spectral_spread",
+    "spectral_rolloff",
+    "spectral_entropy",
+)
+
+ALL_FEATURES: Tuple[str, ...] = TIME_FEATURES + FREQ_FEATURES
 
 
 @dataclass

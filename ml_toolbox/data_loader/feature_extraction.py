@@ -16,17 +16,15 @@ from .features import (
     TimeDomainFeatures,
     FrequencyDomainFeatures,
     FeatureConfig,
+    TIME_FEATURES,
+    FREQ_FEATURES,
 )
 
 logger = logging.getLogger(__name__)
 
-# All recognized feature names per family.
-KNOWN_TIME_FEATURES: frozenset = frozenset(
-    {"rms", "skewness", "kurtosis", "crest_factor", "form_factor"}
-)
-KNOWN_FREQ_FEATURES: frozenset = frozenset(
-    {"spectral_centroid", "spectral_spread", "spectral_rolloff", "spectral_entropy"}
-)
+# All recognized feature names per family (derived from the canonical constants).
+KNOWN_TIME_FEATURES: frozenset = frozenset(TIME_FEATURES)
+KNOWN_FREQ_FEATURES: frozenset = frozenset(FREQ_FEATURES)
 KNOWN_FEATURES: frozenset = KNOWN_TIME_FEATURES | KNOWN_FREQ_FEATURES
 
 

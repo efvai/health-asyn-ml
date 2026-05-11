@@ -9,18 +9,21 @@ This package provides modular feature extraction capabilities organized by featu
 The modular design allows for easy extension and reuse of feature types.
 """
 
+from .base import FeatureConfig, TIME_FEATURES, FREQ_FEATURES, ALL_FEATURES
+
 try:
     from .time_domain import TimeDomainFeatures
     from .frequency_domain import FrequencyDomainFeatures
-    from .base import FeatureConfig
-    
     __all__ = [
         'TimeDomainFeatures',
-        'FrequencyDomainFeatures', 
+        'FrequencyDomainFeatures',
         'FeatureConfig',
+        'TIME_FEATURES',
+        'FREQ_FEATURES',
+        'ALL_FEATURES',
     ]
 except ImportError as e:
-    # Handle potential import errors gracefully
+    # Handle potential import errors gracefully — base constants still available
     import logging
     logging.getLogger(__name__).warning(f"Some feature modules could not be imported: {e}")
-    __all__ = []
+    __all__ = ['FeatureConfig', 'TIME_FEATURES', 'FREQ_FEATURES', 'ALL_FEATURES']
