@@ -72,13 +72,13 @@ with st.sidebar:
     train_dataset = st.selectbox(
         "Train dataset",
         AVAILABLE_DATASETS,
-        index=AVAILABLE_DATASETS.index("data_set_4") if "data_set_4" in AVAILABLE_DATASETS else 0,
+        index=AVAILABLE_DATASETS.index("data_set_4_2khz_float32") if "data_set_4_2khz_float32" in AVAILABLE_DATASETS else 0,
         key="sidebar_train_dataset",
     )
     test_dataset = st.selectbox(
         "Test dataset",
         AVAILABLE_DATASETS,
-        index=AVAILABLE_DATASETS.index("data_set_6") if "data_set_6" in AVAILABLE_DATASETS else 0,
+        index=AVAILABLE_DATASETS.index("data_set_6_2khz_float32") if "data_set_6_2khz_float32" in AVAILABLE_DATASETS else 0,
         key="sidebar_test_dataset",
     )
 
