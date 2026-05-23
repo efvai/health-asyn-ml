@@ -1,5 +1,7 @@
 """Tab 3 — Feature Extraction."""
 
+import io
+import datetime
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
@@ -87,6 +89,17 @@ def render(train_path: str) -> None:
     _max_ch = 4 if sensor_type == "vibration" else 2
     _all_ch_keys = [f"ch{i + 1}" for i in range(_max_ch)]
 
+    # Initialize session state defaults (only if not already set)
+    for _c in _all_ch_keys:
+        if f"fc_{_c}" not in st.session_state:
+            st.session_state[f"fc_{_c}"] = True
+    for _f in TIME_FEATURES:
+        if f"fc_td_{_f}" not in st.session_state:
+            st.session_state[f"fc_td_{_f}"] = True
+    for _f in FREQ_FEATURES:
+        if f"fc_fd_{_f}" not in st.session_state:
+            st.session_state[f"fc_fd_{_f}"] = True
+
     _col_ch, _col_td, _col_fd = st.columns(3)
     with _col_ch:
         st.markdown("**Channels**")
@@ -100,7 +113,7 @@ def render(train_path: str) -> None:
                 st.session_state[f"fc_{_c}"] = False
             st.rerun()
         for _c in _all_ch_keys:
-            st.checkbox(_c, value=True, key=f"fc_{_c}")
+            st.checkbox(_c, key=f"fc_{_c}")
 
     with _col_td:
         st.markdown("**Time-domain**")
@@ -114,7 +127,7 @@ def render(train_path: str) -> None:
                 st.session_state[f"fc_td_{_f}"] = False
             st.rerun()
         for _f in TIME_FEATURES:
-            st.checkbox(_f, value=True, key=f"fc_td_{_f}")
+            st.checkbox(_f, key=f"fc_td_{_f}")
 
     with _col_fd:
         st.markdown("**Frequency-domain**")
@@ -128,7 +141,7 @@ def render(train_path: str) -> None:
                 st.session_state[f"fc_fd_{_f}"] = False
             st.rerun()
         for _f in FREQ_FEATURES:
-            st.checkbox(_f, value=True, key=f"fc_fd_{_f}")
+            st.checkbox(_f, key=f"fc_fd_{_f}")
 
     _sel_channels = [_c for _c in _all_ch_keys if st.session_state.get(f"fc_{_c}", True)]
     _sel_td = [_f for _f in TIME_FEATURES if st.session_state.get(f"fc_td_{_f}", True)]
@@ -170,6 +183,7 @@ def render(train_path: str) -> None:
             st.session_state[S.LABELS] = labels
             st.session_state[S.FEATURE_NAMES] = feature_names
             st.session_state[S.LABEL_MAP] = label_map
+            st.session_state[S.WIN_METADATA] = win_metadata
             st.session_state[S.DATASET_PATH] = train_path
             for _k in (S.PIPELINE, S.PREDICTIONS, S.SHAP_VALUES,
                        S.TEST_FEATURES, S.TEST_FEATURE_NAMES, S.TEST_LABELS):
@@ -184,26 +198,45 @@ def render(train_path: str) -> None:
         feature_names = st.session_state[S.FEATURE_NAMES]
         labels = st.session_state[S.LABELS]
         label_map = st.session_state[S.LABEL_MAP]
+        win_metadata = st.session_state.get(S.WIN_METADATA, [])
 
         ram_mb = features.nbytes / 1024 ** 2
         st.success(f"Features: {features.shape}  —  {len(feature_names)} features  —  {ram_mb:.1f} MB")
 
-        counts = pd.Series(labels).value_counts().sort_index()
-        counts.index = [label_map.get(i, str(i)) for i in counts.index]
-        fig_wpc, ax = plt.subplots(figsize=(6, 3))
-        ax.bar(counts.index, counts.values, color="#4CAF50")
-        ax.set_xlabel("Class")
-        ax.set_ylabel("Windows")
-        ax.set_title("Windows per class")
-        plt.tight_layout()
-        st.pyplot(fig_wpc, width="content")
-        plt.close(fig_wpc)
+        def _build_excel_bytes() -> bytes:
+            df_exp = pd.DataFrame(features, columns=feature_names)
+            mapped = [label_map.get(i, str(i)) for i in labels]
+            df_exp.insert(0, "class", mapped)
+            # Prepend window location columns so rows can be cross-referenced
+            # with the Before/After preview in the Preprocessing tab
+            _meta_cols = ["sample_id", "window_id", "start_sample", "end_sample"]
+            for _col_idx, _key in enumerate(_meta_cols):
+                _vals = [m.get(_key, "") for m in win_metadata] if win_metadata else [""] * len(df_exp)
+                df_exp.insert(_col_idx, _key, _vals)
+            buf = io.BytesIO()
+            df_exp.to_excel(buf, index=False, engine="openpyxl")
+            return buf.getvalue()
+
+        _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        st.download_button(
+            label="Export feature matrix (.xlsx)",
+            data=_build_excel_bytes(),
+            file_name=f"features_{_ts}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="btn_export_features",
+        )
 
         with st.expander("Feature statistics", expanded=False):
-            stats_df = pd.DataFrame(features, columns=feature_names).describe().T
+            df_all = pd.DataFrame(features, columns=feature_names)
+            mapped_labels = [label_map.get(i, str(i)) for i in labels]
+            df_all["class"] = mapped_labels
+            
+            grouped_stats = df_all.groupby("class").describe()
+            
+            stats_df = grouped_stats.T.unstack(level=1)
             st.dataframe(stats_df, width='stretch')
 
-        st.markdown("**Correlation heatmap**")
-        fig_corr = correlation_heatmap(features, feature_names)
-        st.pyplot(fig_corr, width="stretch")
-        plt.close(fig_corr)
+        with st.expander("Correlation heatmap", expanded=False):
+            fig_corr = correlation_heatmap(features, feature_names)
+            st.pyplot(fig_corr, width="stretch")
+            plt.close(fig_corr)

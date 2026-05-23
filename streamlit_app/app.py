@@ -62,7 +62,7 @@ with st.sidebar:
         key="sidebar_train_dataset",
     )
     test_dataset = st.selectbox(
-        "Test dataset",
+        "Test dataset (hold-out)",
         AVAILABLE_DATASETS,
         index=AVAILABLE_DATASETS.index("data_set_6_2khz_float32") if "data_set_6_2khz_float32" in AVAILABLE_DATASETS else 0,
         key="sidebar_test_dataset",

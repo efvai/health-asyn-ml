@@ -115,11 +115,18 @@ def _run_cv_fold(
     preds = est.predict(X_val)
     score = est.score(X_val, y_val)
 
+    fold_f1 = f1_score(y_val, preds, average="macro", zero_division=0)
+    fold_precision = precision_score(y_val, preds, average="macro", zero_division=0)
+    fold_recall = recall_score(y_val, preds, average="macro", zero_division=0)
+
     return {
         "fold_idx": fold_idx,
         "val_idx": val_idx,
         "preds": preds,
         "score": score,
+        "f1": fold_f1,
+        "precision": fold_precision,
+        "recall": fold_recall,
         "estimator": est,
     }
 
@@ -318,6 +325,9 @@ def cross_validate_with_models(
 
     cv_predictions = np.empty(n, dtype=labels.dtype)
     cv_scores = []
+    cv_f1_scores = []
+    cv_precision_scores = []
+    cv_recall_scores = []
     estimators = []
 
     fold_splits = _build_fold_splits(
@@ -348,6 +358,9 @@ def cross_validate_with_models(
             val_idx = fold_result["val_idx"]
             cv_predictions[val_idx] = fold_result["preds"]
             cv_scores.append(fold_result["score"])
+            cv_f1_scores.append(fold_result["f1"])
+            cv_precision_scores.append(fold_result["precision"])
+            cv_recall_scores.append(fold_result["recall"])
             estimators.append((fold_result["estimator"], val_idx))
     else:
         for fold_idx, (train_idx, val_idx) in enumerate(fold_splits):
@@ -361,10 +374,16 @@ def cross_validate_with_models(
             )
             cv_predictions[val_idx] = fold_result["preds"]
             cv_scores.append(fold_result["score"])
+            cv_f1_scores.append(fold_result["f1"])
+            cv_precision_scores.append(fold_result["precision"])
+            cv_recall_scores.append(fold_result["recall"])
             estimators.append((fold_result["estimator"], val_idx))
 
     return {
         "cv_scores": np.array(cv_scores),
+        "cv_f1_scores": np.array(cv_f1_scores),
+        "cv_precision_scores": np.array(cv_precision_scores),
+        "cv_recall_scores": np.array(cv_recall_scores),
         "cv_predictions": cv_predictions,
         "estimators": estimators
     }
