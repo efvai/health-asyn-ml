@@ -3,6 +3,8 @@ python -m venv venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
+streamlit run streamlit_app/app.py
+
 
 data_set - legacy
 data_set_2 - 2025
