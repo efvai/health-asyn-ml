@@ -117,7 +117,7 @@ class DatasetManager:
         name = filename.lower()
         if "ltr11" in name:
             return "current"
-        if "ltr22" in name:
+        if "ltr22" in name or "ltr24" in name:
             return "vibration"
         return "unknown"
     
